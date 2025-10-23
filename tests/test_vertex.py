@@ -8,18 +8,28 @@ import pytest
 import pydantic
 from pydantic import BaseModel
 from typing import List, Optional
-from llm_gemini import cleanup_schema
+from llm_vertex import cleanup_schema
 
 nest_asyncio.apply()
 
-GEMINI_API_KEY = os.environ.get("PYTEST_GEMINI_API_KEY", None) or "gm-..."
+# For Vertex AI, we need GCP project and credentials setup
+# Set these environment variables for testing:
+# - GOOGLE_CLOUD_PROJECT (required)
+# - GOOGLE_APPLICATION_CREDENTIALS (path to service account JSON)
+# OR use `gcloud auth application-default login`
+
+# Ensure environment is configured for tests
+if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+    os.environ["GOOGLE_CLOUD_PROJECT"] = os.environ.get("PYTEST_GCP_PROJECT", "test-project")
+if not os.environ.get("GOOGLE_CLOUD_REGION"):
+    os.environ["GOOGLE_CLOUD_REGION"] = "global"
 
 
 @pytest.mark.vcr
 @pytest.mark.asyncio
 async def test_prompt():
     model = llm.get_model("gemini-1.5-flash-latest")
-    response = model.prompt("Name for a pet pelican, just the name", key=GEMINI_API_KEY)
+    response = model.prompt("Name for a pet pelican, just the name")
     assert str(response) == "Percy\n"
     assert response.response_json == {
         "candidates": [
@@ -58,7 +68,7 @@ async def test_prompt():
     # And try it async too
     async_model = llm.get_async_model("gemini-1.5-flash-latest")
     response = await async_model.prompt(
-        "Name for a pet pelican, just the name", key=GEMINI_API_KEY
+        "Name for a pet pelican, just the name"
     )
     text = await response.text()
     assert text == "Percy\n"
@@ -77,7 +87,7 @@ async def test_prompt_with_pydantic_schema():
 
     model = llm.get_model("gemini-1.5-flash-latest")
     response = model.prompt(
-        "Invent a cool dog", key=GEMINI_API_KEY, schema=Dog, stream=False
+        "Invent a cool dog", schema=Dog, stream=False
     )
     assert json.loads(response.text()) == {
         "age": 3,
@@ -126,7 +136,7 @@ async def test_prompt_with_multiple_dogs():
 
     model = llm.get_model("gemini-2.0-flash")
     response = model.prompt(
-        "Invent 3 cool dogs", key=GEMINI_API_KEY, schema=Dogs, stream=False
+        "Invent 3 cool dogs", schema=Dogs, stream=False
     )
     result = json.loads(response.text())
 
@@ -154,7 +164,9 @@ async def test_prompt_with_multiple_dogs():
     ),
 )
 def test_embedding(model_id, monkeypatch):
-    monkeypatch.setenv("LLM_GEMINI_KEY", GEMINI_API_KEY)
+    # Ensure GCP environment is set for embedding tests
+    if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
     model = llm.get_embedding_model(model_id)
     response = model.embed("Some text goes here")
     expected_length = 3072
@@ -448,7 +460,6 @@ def test_nested_model_direct_reference():
     model = llm.get_model("gemini-2.0-flash")
     response = model.prompt(
         "Create a person named Alice living in San Francisco",
-        key=GEMINI_API_KEY,
         schema=Person,
         stream=False,
     )
@@ -479,7 +490,6 @@ def test_nested_model_optional():
     model = llm.get_model("gemini-2.0-flash")
     response = model.prompt(
         "Create a person named Bob who works at TechCorp",
-        key=GEMINI_API_KEY,
         schema=Person,
         stream=False,
     )
@@ -508,7 +518,6 @@ def test_nested_model_deep_composition():
     model = llm.get_model("gemini-2.0-flash")
     response = model.prompt(
         "Create a customer named Carol with 2 orders, each containing 2 items",
-        key=GEMINI_API_KEY,
         schema=Customer,
         stream=False,
     )
@@ -525,36 +534,37 @@ def test_nested_model_deep_composition():
 
 
 @pytest.mark.vcr
-def test_cli_gemini_models(tmpdir, monkeypatch):
+def test_cli_vertex_config(tmpdir, monkeypatch):
+    """Test the new Vertex AI CLI commands"""
     user_dir = tmpdir / "llm.datasette.io"
     user_dir.mkdir()
     monkeypatch.setenv("LLM_USER_PATH", str(user_dir))
-    # With no key set should error nicely
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_REGION", "us-central1")
+
     runner = CliRunner()
-    result = runner.invoke(cli, ["gemini", "models"])
-    assert result.exit_code == 1
-    assert (
-        "Error: You must set the LLM_GEMINI_KEY environment variable or use --key\n"
-        == result.output
-    )
-    # Try again with --key
-    result2 = runner.invoke(cli, ["gemini", "models", "--key", GEMINI_API_KEY])
+
+    # Test config command
+    result = runner.invoke(cli, ["vertex", "config"])
+    assert result.exit_code == 0
+    assert "test-project" in result.output
+    assert "us-central1" in result.output
+
+    # Test set-project command
+    result2 = runner.invoke(cli, ["vertex", "set-project", "my-gcp-project"])
     assert result2.exit_code == 0
-    assert "gemini-1.5-flash-latest" in result2.output
-    # And with --method
-    result3 = runner.invoke(
-        cli, ["gemini", "models", "--key", GEMINI_API_KEY, "--method", "embedContent"]
-    )
+    assert "my-gcp-project" in result2.output
+
+    # Test set-region command
+    result3 = runner.invoke(cli, ["vertex", "set-region", "europe-west1"])
     assert result3.exit_code == 0
-    models = json.loads(result3.output)
-    for model in models:
-        assert "embedContent" in model["supportedGenerationMethods"]
+    assert "europe-west1" in result3.output
 
 
 @pytest.mark.vcr
 def test_resolved_model():
     model = llm.get_model("gemini-flash-latest")
-    response = model.prompt("hi", key=GEMINI_API_KEY)
+    response = model.prompt("hi")
     response.text()
     assert response.resolved_model == "gemini-2.5-flash-preview-09-2025"
 
@@ -568,7 +578,6 @@ def test_tools():
         tools=[
             llm.Tool.function(lambda: names.pop(0), name="pelican_name_generator"),
         ],
-        key=GEMINI_API_KEY,
     )
     text = chain_response.text()
     assert text == "Okay, here are two names for a pet pelican: Charles and Sammy.\n"

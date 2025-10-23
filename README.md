@@ -1,154 +1,258 @@
-# llm-gemini
+# llm-vertex
 
-[![PyPI](https://img.shields.io/pypi/v/llm-gemini.svg)](https://pypi.org/project/llm-gemini/)
-[![Changelog](https://img.shields.io/github/v/release/simonw/llm-gemini?include_prereleases&label=changelog)](https://github.com/simonw/llm-gemini/releases)
-[![Tests](https://github.com/simonw/llm-gemini/workflows/Test/badge.svg)](https://github.com/simonw/llm-gemini/actions?query=workflow%3ATest)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/simonw/llm-gemini/blob/main/LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/llm-vertex.svg)](https://pypi.org/project/llm-vertex/)
+[![Changelog](https://img.shields.io/github/v/release/simonw/llm-gemini-vertex?include_prereleases&label=changelog)](https://github.com/simonw/llm-gemini-vertex/releases)
+[![Tests](https://github.com/simonw/llm-gemini-vertex/workflows/Test/badge.svg)](https://github.com/simonw/llm-gemini-vertex/actions?query=workflow%3ATest)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/simonw/llm-gemini-vertex/blob/main/LICENSE)
 
-API access to Google's Gemini models
+Access Google's Gemini models via Vertex AI for enterprise use
 
 ## Installation
 
 Install this plugin in the same environment as [LLM](https://llm.datasette.io/).
 ```bash
-llm install llm-gemini
+llm install llm-vertex
 ```
+
+## Authentication Setup
+
+This plugin uses Google Cloud Vertex AI, which supports three authentication methods:
+
+### Option 1: API Key (Recommended for Testing Only)
+
+**Fastest setup**, but recommended for testing only:
+
+```bash
+# Set via llm keys command
+llm keys set vertex
+# Or via environment variable
+export GOOGLE_CLOUD_API_KEY="YOUR_API_KEY"
+```
+
+Get your API key from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+
+**Note:** Vertex AI API keys are different from Google AI Studio keys. Make sure to create a Vertex AI-compatible API key in your GCP project. API keys are convenient for development and testing but not recommended for production. For production, use Application Default Credentials (Option 2).
+
+### Option 2: Application Default Credentials (Recommended for Production)
+
+If you're already using Google Cloud, authenticate with:
+
+```bash
+gcloud auth application-default login
+```
+
+This sets up Application Default Credentials (ADC) that the plugin will automatically use.
+
+### Option 3: Service Account JSON File
+
+1. Create a service account in your GCP project with Vertex AI User permissions
+2. Download the JSON key file
+3. Set the environment variable:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+```
+
+Or configure it via the plugin:
+
+```bash
+llm vertex set-credentials /path/to/service-account.json
+```
+
+## Configuration
+
+### Set Your GCP Project ID
+
+```bash
+# Via environment variable
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+
+# Or via plugin config
+llm vertex set-project your-project-id
+```
+
+### Set Your Region (Optional)
+
+The plugin defaults to the `global` endpoint. However, the global endpoint has important limitations:
+
+- ⚠️ **Does not support** tuning, batch prediction, or RAG corpus creation
+- ⚠️ **Does not guarantee** region-specific ML processing
+- ⚠️ **Does not provide** data residency compliance
+
+For production use or if you need specific features, use a regional endpoint:
+
+```bash
+# Via environment variable
+export GOOGLE_CLOUD_REGION="us-central1"
+
+# Or via plugin config
+llm vertex set-region us-central1
+```
+
+To see all available regions:
+
+```bash
+llm vertex list-regions
+```
+
+**Available regions include:**
+- **United States**: `us-central1`, `us-east1`, `us-east4`, `us-east5`, `us-south1`, `us-west1`, `us-west4`
+- **Canada**: `northamerica-northeast1`
+- **South America**: `southamerica-east1`
+- **Europe**: `europe-west1`, `europe-west2`, `europe-west3`, `europe-west4`, `europe-west6`, `europe-west8`, `europe-west9`, `europe-north1`, `europe-southwest1`, `europe-central2`
+- **Asia Pacific**: `asia-east1`, `asia-northeast1`, `asia-northeast3`, `asia-southeast1`, `asia-south1`, `australia-southeast1`, `australia-southeast2`
+- **Middle East**: `me-central1`, `me-central2`, `me-west1`
+
+For the latest region availability and model-specific regional support, see the [official Vertex AI locations documentation](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations).
+
+### View Current Configuration
+
+```bash
+llm vertex config
+```
+
 ## Usage
 
-Configure the model by setting a key called "gemini" to your [API key](https://aistudio.google.com/app/apikey):
-```bash
-llm keys set gemini
-```
-```
-<paste key here>
-```
-You can also set the API key by assigning it to the environment variable `LLM_GEMINI_KEY`.
-
-Now run the model using `-m gemini-2.0-flash`, for example:
+Now run the model using `-m vertex/gemini-2.5-flash`, for example:
 
 ```bash
-llm -m gemini-2.0-flash "A short joke about a pelican and a walrus"
+llm -m vertex/gemini-2.5-flash "A short joke about a pelican and a walrus"
 ```
-
-> A pelican and a walrus are sitting at a bar. The pelican orders a fishbowl cocktail, and the walrus orders a plate of clams. The bartender asks, "So, what brings you two together?"
->
-> The walrus sighs and says, "It's a long story. Let's just say we met through a mutual friend... of the fin."
 
 You can set the [default model](https://llm.datasette.io/en/stable/setup.html#setting-a-custom-default-model) to avoid the extra `-m` option:
 
 ```bash
-llm models default gemini-2.0-flash
+llm models default vertex/gemini-2.5-flash
 llm "A joke about a pelican and a walrus"
 ```
 
 ## Available models
 
-<!-- [[[cog
-import cog
-from llm import cli
-from click.testing import CliRunner
-runner = CliRunner()
-result = runner.invoke(cli.cli, ["models", "-q", "gemini/"])
-lines = reversed(result.output.strip().split("\n"))
-to_output = []
-NOTES = {
-    "gemini/gemini-flash-latest": "Latest Gemini Flash",
-    "gemini/gemini-flash-lite-latest": "Latest Gemini Flash Lite",
-    "gemini/gemini-2.5-flash": "Gemini 2.5 Flash",
-    "gemini/gemini-2.5-pro": "Gemini 2.5 Pro",
-    "gemini/gemini-2.5-flash": "Gemini 2.5 Flash",
-    "gemini/gemini-2.5-flash-lite": "Gemini 2.5 Flash Lite",
-    "gemini/gemini-2.5-flash-preview-05-20": "Gemini 2.5 Flash preview (priced differently from 2.5 Flash)",
-    "gemini/gemini-2.0-flash-thinking-exp-01-21": "Experimental \"thinking\" model from January 2025",
-    "gemini/gemini-1.5-flash-8b-latest": "The least expensive model",
-}
-for line in lines:
-    model_id, rest = line.split(None, 2)[1:]
-    note = NOTES.get(model_id, "")
-    to_output.append(
-        "- `{}`{}".format(
-            model_id,
-            ': {}'.format(note) if note else ""
-        )
-    )
-cog.out("\n".join(to_output))
-]]] -->
-- `gemini/gemini-2.5-flash-lite-preview-09-2025`
-- `gemini/gemini-2.5-flash-preview-09-2025`
-- `gemini/gemini-flash-lite-latest`: Latest Gemini Flash Lite
-- `gemini/gemini-flash-latest`: Latest Gemini Flash
-- `gemini/gemini-2.5-flash-lite`: Gemini 2.5 Flash Lite
-- `gemini/gemini-2.5-pro`: Gemini 2.5 Pro
-- `gemini/gemini-2.5-flash`: Gemini 2.5 Flash
-- `gemini/gemini-2.5-pro-preview-06-05`
-- `gemini/gemini-2.5-flash-preview-05-20`: Gemini 2.5 Flash preview (priced differently from 2.5 Flash)
-- `gemini/gemini-2.5-pro-preview-05-06`
-- `gemini/gemini-2.5-flash-preview-04-17`
-- `gemini/gemini-2.5-pro-preview-03-25`
-- `gemini/gemini-2.5-pro-exp-03-25`
-- `gemini/gemini-2.0-flash-lite`
-- `gemini/gemini-2.0-pro-exp-02-05`
-- `gemini/gemini-2.0-flash`
-- `gemini/gemini-2.0-flash-thinking-exp-01-21`: Experimental "thinking" model from January 2025
-- `gemini/gemini-2.0-flash-thinking-exp-1219`
-- `gemini/gemma-3n-e4b-it`
-- `gemini/gemma-3-27b-it`
-- `gemini/gemma-3-12b-it`
-- `gemini/gemma-3-4b-it`
-- `gemini/gemma-3-1b-it`
-- `gemini/learnlm-1.5-pro-experimental`
-- `gemini/gemini-2.0-flash-exp`
-- `gemini/gemini-exp-1206`
-- `gemini/gemini-exp-1121`
-- `gemini/gemini-exp-1114`
-- `gemini/gemini-1.5-flash-8b-001`
-- `gemini/gemini-1.5-flash-8b-latest`: The least expensive model
-- `gemini/gemini-1.5-flash-002`
-- `gemini/gemini-1.5-pro-002`
-- `gemini/gemini-1.5-flash-001`
-- `gemini/gemini-1.5-pro-001`
-- `gemini/gemini-1.5-flash-latest`
-- `gemini/gemini-1.5-pro-latest`
-- `gemini/gemini-pro`
-<!-- [[[end]]] -->
+All Gemini models are available through Vertex AI:
 
-All of these models have aliases that omit the `gemini/` prefix, for example:
+- `vertex/gemini-2.5-flash-lite-preview-09-2025`
+- `vertex/gemini-2.5-flash-preview-09-2025`
+- `vertex/gemini-flash-lite-latest`: Latest Gemini Flash Lite
+- `vertex/gemini-flash-latest`: Latest Gemini Flash
+- `vertex/gemini-2.5-flash-lite`: Gemini 2.5 Flash Lite
+- `vertex/gemini-2.5-pro`: Gemini 2.5 Pro
+- `vertex/gemini-2.5-flash`: Gemini 2.5 Flash
+- `vertex/gemini-2.0-flash`: Gemini 2.0 Flash
+- `vertex/gemini-2.0-flash-thinking-exp-01-21`: Experimental "thinking" model
+- `vertex/gemini-1.5-flash-8b-latest`: The least expensive model
+- `vertex/gemini-1.5-pro-latest`
+- `vertex/gemini-1.5-flash-latest`
+
+And many more. Use the `vertex/` prefix to reference models:
 
 ```bash
-llm -m gemini-1.5-flash-8b-latest --schema 'name,age int,bio' 'invent a dog'
+llm -m vertex/gemini-1.5-flash-8b-latest --schema 'name,age int,bio' 'invent a dog'
 ```
+
+**Note:** This plugin provides Gemini models via **Vertex AI** (enterprise API). For the public Google AI Studio API, use the separate [llm-gemini](https://pypi.org/project/llm-gemini/) plugin.
+
+## Model Regional Availability
+
+Different Gemini models are available in different regions. Here's the detailed availability for the main models:
+
+### Gemini 2.5 Flash
+
+The `gemini-2.5-flash` (GA) model is available in the following regions:
+
+| Region Code | Geographic Location | Notes |
+|-------------|---------------------|-------|
+| **Global** | Global endpoint | Limited features (no tuning, batch prediction, or RAG) |
+| **United States** | | |
+| us-central1 | Iowa, USA | |
+| us-east1 | South Carolina, USA | |
+| us-east4 | Northern Virginia, USA | |
+| us-east5 | Columbus, Ohio, USA | |
+| us-south1 | Dallas, Texas, USA | |
+| us-west1 | Oregon, USA | |
+| us-west4 | Las Vegas, Nevada, USA | |
+| **Europe** | | |
+| europe-central2 | Warsaw, Poland | |
+| europe-north1 | Hamina, Finland | |
+| europe-southwest1 | Madrid, Spain | |
+| europe-west1 | St. Ghislain, Belgium | |
+| europe-west4 | Eemshaven, Netherlands | |
+| europe-west8 | Milan, Italy | |
+| **Canada** | | |
+| northamerica-northeast1 | Montréal, Canada | |
+| **Asia Pacific** | | |
+| asia-northeast1 | Tokyo, Japan | 128K context window only* |
+| asia-northeast3 | Seoul, South Korea | 128K context window only* |
+| asia-south1 | Mumbai, India | 128K context window only* |
+| asia-southeast1 | Jurong West, Singapore | 128K context window only* |
+| australia-southeast1 | Sydney, Australia | 128K context window only* |
+
+*Regions marked with asterisk have limitations: 128K context window only, supervised fine-tuning not supported.
+
+The preview model (`gemini-2.5-flash-preview-09-2025`) is available only via the **Global** endpoint.
+
+### Gemini 2.5 Pro
+
+The `gemini-2.5-pro` model is available in the following regions:
+
+| Region Code | Geographic Location | Notes |
+|-------------|---------------------|-------|
+| **Global** | Global endpoint | Limited features (no tuning, batch prediction, or RAG) |
+| **United States** | | |
+| us-central1 | Iowa, USA | |
+| us-east1 | South Carolina, USA | |
+| us-east4 | Northern Virginia, USA | |
+| us-east5 | Columbus, Ohio, USA | |
+| us-south1 | Dallas, Texas, USA | |
+| us-west1 | Oregon, USA | |
+| us-west4 | Las Vegas, Nevada, USA | |
+| **Europe** | | |
+| europe-central2 | Warsaw, Poland | |
+| europe-north1 | Hamina, Finland | |
+| europe-southwest1 | Madrid, Spain | |
+| europe-west1 | St. Ghislain, Belgium | |
+| europe-west4 | Eemshaven, Netherlands | |
+| europe-west8 | Milan, Italy | |
+| europe-west9 | Paris, France | |
+| **Asia Pacific** | | |
+| asia-northeast1 | Tokyo, Japan | 128K context window only; supervised fine-tuning not supported |
+
+**Important Notes:**
+- For production use cases requiring specific features (tuning, batch prediction, RAG corpus), use a **regional endpoint** instead of the global endpoint
+- Region availability may change; check the official documentation for the latest information:
+  - [Gemini 2.5 Flash Documentation](https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-flash)
+  - [Gemini 2.5 Pro Documentation](https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-pro)
+  - [All Vertex AI Locations](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations)
 
 ### Images, audio and video
 
 Gemini models are multi-modal. You can provide images, audio or video files as input like this:
 
 ```bash
-llm -m gemini-2.0-flash 'extract text' -a image.jpg
+llm -m vertex/gemini-2.5-flash 'extract text' -a image.jpg
 ```
 Or with a URL:
 ```bash
-llm -m gemini-2.0-flash-lite 'describe image' \
+llm -m vertex/gemini-2.5-flash-lite 'describe image' \
   -a https://static.simonwillison.net/static/2024/pelicans.jpg
 ```
 Audio works too:
 
 ```bash
-llm -m gemini-2.0-flash 'transcribe audio' -a audio.mp3
+llm -m vertex/gemini-2.5-flash 'transcribe audio' -a audio.mp3
 ```
 
 And video:
 
 ```bash
-llm -m gemini-2.0-flash 'describe what happens' -a video.mp4
+llm -m vertex/gemini-2.5-flash 'describe what happens' -a video.mp4
 ```
-The Gemini prompting guide includes [extensive advice](https://ai.google.dev/gemini-api/docs/file-prompting-strategies) on multi-modal prompting.
 
 ### JSON output
 
 Use `-o json_object 1` to force the output to be JSON:
 
 ```bash
-llm -m gemini-2.0-flash -o json_object 1 \
+llm -m vertex/gemini-2.5-flash -o json_object 1 \
   '3 largest cities in California, list of {"name": "..."}'
 ```
 Outputs:
@@ -158,82 +262,51 @@ Outputs:
 
 ### Code execution
 
-Gemini models can [write and execute code](https://ai.google.dev/gemini-api/docs/code-execution) - they can decide to write Python code, execute it in a secure sandbox and use the result as part of their response.
+Gemini models can write and execute code - they can decide to write Python code, execute it in a secure sandbox and use the result as part of their response.
 
 To enable this feature, use `-o code_execution 1`:
 
 ```bash
-llm -m gemini-2.0-flash -o code_execution 1 \
+llm -m vertex/gemini-2.5-flash -o code_execution 1 \
 'use python to calculate (factorial of 13) * 3'
 ```
+
 ### Google search
 
-Some Gemini models support [Grounding with Google Search](https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/ground-gemini#web-ground-gemini), where the model can run a Google search and use the results as part of answering a prompt.
-
-Using this feature may incur additional requirements in terms of how you use the results. Consult [Google's documentation](https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/ground-gemini#web-ground-gemini) for more details.
+Some Gemini models support Grounding with Google Search, where the model can run a Google search and use the results as part of answering a prompt.
 
 To run a prompt with Google search enabled, use `-o google_search 1`:
 
 ```bash
-llm -m gemini-2.0-flash -o google_search 1 \
+llm -m vertex/gemini-2.5-flash -o google_search 1 \
   'What happened in Ireland today?'
 ```
 
-Use `llm logs -c --json` after running a prompt to see the full JSON response, which includes [additional information](https://github.com/simonw/llm-gemini/pull/29#issuecomment-2606201877) about grounded results.
-
 ### URL context
 
-Gemini models support a [URL context](https://ai.google.dev/gemini-api/docs/url-context) tool which, when enabled, allows the models to fetch additional content from URLs as part of their execution.
+Gemini models support a URL context tool which, when enabled, allows the models to fetch additional content from URLs as part of their execution.
 
-You can enable that with the `-o url_context 1` option - for example:
+You can enable that with the `-o url_context 1` option:
 
 ```bash
-llm -m gemini-2.5-flash -o url_context 1 'Latest headline on simonwillison.net'
+llm -m vertex/gemini-2.5-flash -o url_context 1 'Latest headline on simonwillison.net'
 ```
-Extra tokens introduced by this tool will be charged as input tokens. Use `--usage` to see details of those:
-```bash
-llm -m gemini-2.5-flash -o url_context 1 --usage \
-  'Latest headline on simonwillison.net'
-```
-Outputs:
-```
-The latest headline on simonwillison.net as of August 17, 2025, is "TIL: Running a gpt-oss eval suite against LM Studio on a Mac.".
-Token usage: 9,613 input, 87 output, {"candidatesTokenCount": 57, "promptTokensDetails": [{"modality": "TEXT", "tokenCount": 10}], "toolUsePromptTokenCount": 9603, "toolUsePromptTokensDetails": [{"modality": "TEXT", "tokenCount": 9603}], "thoughtsTokenCount": 30}
-```
-The `"toolUsePromptTokenCount"` key shows how many tokens were used for that URL context.
 
 ### Chat
 
 To chat interactively with the model, run `llm chat`:
 
 ```bash
-llm chat -m gemini-2.0-flash
+llm chat -m vertex/gemini-2.5-flash
 ```
 
 ### Timeouts
 
-By default there is no `timeout` against the Gemini API. You can use the `timeout` option to protect against API requests that hang indefinitely.
-
-With the CLI tool that looks like this, to set a 1.5 second timeout:
+By default there is no timeout against the Vertex AI API. You can use the `timeout` option to protect against API requests that hang indefinitely:
 
 ```bash
-llm -m gemini-2.5-flash-preview-05-20 'epic saga about mice' -o timeout 1.5
+llm -m vertex/gemini-2.5-flash 'epic saga about mice' -o timeout 1.5
 ```
-In the Python library timeouts are used like this:
-```python
-import httpx, llm
-
-model = llm.get_model("gemini/gemini-2.5-flash-preview-05-20")
-
-try:
-    response = model.prompt(
-        "epic saga about mice", timeout=1.5
-    )
-    print(response.text())
-except httpx.TimeoutException:
-    print("Timeout exceeded")
-```
-An `httpx.TimeoutException` subclass will be raised if the timeout is exceeded.
 
 ## Embeddings
 
@@ -243,50 +316,34 @@ Run that against a single string like this:
 ```bash
 llm embed -m text-embedding-004 -c 'hello world'
 ```
-This returns a JSON array of 768 numbers.
-
-The `gemini-embedding-exp-03-07` model is larger, returning 3072 numbers. You can also use variants of it that are truncated down to smaller sizes:
-
-- `gemini-embedding-exp-03-07` - 3072 numbers
-- `gemini-embedding-exp-03-07-2048` - 2048 numbers
-- `gemini-embedding-exp-03-07-1024` - 1024 numbers
-- `gemini-embedding-exp-03-07-512` - 512 numbers
-- `gemini-embedding-exp-03-07-256` - 256 numbers
-- `gemini-embedding-exp-03-07-128` - 128 numbers
-
-This command will embed every `README.md` file in child directories of the current directory and store the results in a SQLite database called `embed.db` in a collection called `readmes`:
-
-```bash
-llm embed-multi readmes -d embed.db -m gemini-embedding-exp-03-07-128 \
-  --files . '*/README.md'
-```
-You can then run similarity searches against that collection like this:
-```bash
-llm similar readmes -c 'upload csvs to stuff' -d embed.db
-```
 
 See the [LLM embeddings documentation](https://llm.datasette.io/en/stable/embeddings/cli.html) for further details.
 
-## Listing all Gemini API models
+## Prerequisites
 
-The `llm gemini models` command lists all of the models that are exposed by the Gemini API, some of which may not be available through this plugin.
+### GCP Project Setup
 
-```bash
-llm gemini models
-```
-You can add a `--key X` option to use a different API key.
+1. Create a GCP project at https://console.cloud.google.com
+2. Enable the Vertex AI API for your project
+3. Set up billing for your project
 
-To filter models by their supported generation methods use `--method` one or more times:
-```bash
-llm gemini models --method embedContent
-```
-If you provide multiple methods you will see models that support any of them.
+### Service Account Setup (if not using ADC)
+
+1. Go to IAM & Admin > Service Accounts in GCP Console
+2. Create a new service account
+3. Grant it the "Vertex AI User" role
+4. Create and download a JSON key
+5. Configure the plugin with the path to this key (see Configuration above)
+
+## Costs
+
+Vertex AI charges for model usage. See [Vertex AI pricing](https://cloud.google.com/vertex-ai/pricing) for details.
 
 ## Development
 
 To set up this plugin locally, first checkout the code. Then create a new virtual environment:
 ```bash
-cd llm-gemini
+cd llm-gemini-vertex
 python3 -m venv venv
 source venv/bin/activate
 ```
@@ -299,14 +356,37 @@ To run the tests:
 pytest
 ```
 
-This project uses [pytest-recording](https://github.com/kiwicom/pytest-recording) to record Gemini API responses for the tests.
+## Troubleshooting
 
-If you add a new test that calls the API you can capture the API response like this:
+### "No GCP project ID found" error
+
+Make sure you've set the `GOOGLE_CLOUD_PROJECT` environment variable or run:
 ```bash
-PYTEST_GEMINI_API_KEY="$(llm keys get gemini)" pytest --record-mode once
+llm vertex set-project your-project-id
 ```
-You will need to have stored a valid Gemini API key using this command first:
+
+### Authentication errors
+
+Verify your authentication setup:
 ```bash
-llm keys set gemini
-# Paste key here
+llm vertex config
+```
+
+For API key:
+```bash
+llm keys set vertex
+```
+
+For ADC:
+```bash
+gcloud auth application-default login
+```
+
+For service account, ensure `GOOGLE_APPLICATION_CREDENTIALS` points to a valid JSON file.
+
+### "API not enabled" errors
+
+Enable the Vertex AI API:
+```bash
+gcloud services enable aiplatform.googleapis.com --project=your-project-id
 ```

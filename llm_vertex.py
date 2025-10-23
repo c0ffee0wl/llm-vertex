@@ -4,6 +4,10 @@ import httpx
 import ijson
 import json
 import llm
+import os
+from google.auth import default
+from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 from pydantic import Field
 from typing import Optional
 
@@ -82,6 +86,47 @@ THINKING_BUDGET_MODELS = {
 
 NO_VISION_MODELS = {"gemma-3-1b-it", "gemma-3n-e4b-it"}
 
+# Valid Vertex AI regions as of 2025
+# See https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations
+VALID_REGIONS = {
+    "global",  # Global endpoint (limited features)
+    # United States
+    "us-central1",
+    "us-east1",
+    "us-east4",
+    "us-east5",
+    "us-south1",
+    "us-west1",
+    "us-west4",
+    # Canada
+    "northamerica-northeast1",
+    # South America
+    "southamerica-east1",
+    # Europe
+    "europe-west1",
+    "europe-west2",
+    "europe-west3",
+    "europe-west4",
+    "europe-west6",
+    "europe-west8",
+    "europe-west9",
+    "europe-north1",
+    "europe-southwest1",
+    "europe-central2",
+    # Asia Pacific
+    "asia-east1",
+    "asia-northeast1",
+    "asia-northeast3",
+    "asia-southeast1",
+    "asia-south1",
+    "australia-southeast1",
+    "australia-southeast2",
+    # Middle East
+    "me-central1",
+    "me-central2",
+    "me-west1",
+}
+
 ATTACHMENT_TYPES = {
     # Text
     "text/plain",
@@ -115,6 +160,179 @@ ATTACHMENT_TYPES = {
     "video/3gpp",
     "video/quicktime",
 }
+
+
+def _save_vertex_config(key, value):
+    """
+    Save a configuration value to the llm keys.json file.
+    This is used to store vertex-specific configuration like project ID and region.
+    """
+    import json
+    from pathlib import Path
+
+    keys_path = llm.user_dir() / "keys.json"
+
+    # Load existing keys or create default structure
+    if keys_path.exists():
+        with open(keys_path, "r") as f:
+            keys = json.load(f)
+    else:
+        keys = {"// Note": "This file stores secret API credentials. Do not share!"}
+        keys_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Update the key
+    keys[key] = value
+
+    # Write back to file
+    with open(keys_path, "w") as f:
+        json.dump(keys, f, indent=2)
+        f.write("\n")
+
+    # Set restrictive permissions if this is a new file
+    if not keys_path.exists():
+        keys_path.chmod(0o600)
+
+
+def validate_region(region):
+    """
+    Validate that a region is a known Vertex AI region.
+
+    Returns True if valid, False otherwise.
+    """
+    return region in VALID_REGIONS
+
+
+def get_region_suggestions(invalid_region):
+    """
+    Get suggestions for similar valid regions when an invalid region is provided.
+
+    This helps users who might have typos or be using the wrong format.
+    """
+    import difflib
+
+    # Get close matches using difflib
+    suggestions = difflib.get_close_matches(
+        invalid_region.lower(),
+        [r.lower() for r in VALID_REGIONS],
+        n=3,
+        cutoff=0.6
+    )
+
+    return suggestions
+
+
+def get_api_key():
+    """
+    Get Vertex AI API key from environment variable or llm config.
+    API keys are recommended for testing only, not production.
+
+    Returns API key string or None if not configured.
+    """
+    # Check environment variable first
+    api_key = os.environ.get("GOOGLE_CLOUD_API_KEY")
+    if api_key:
+        return api_key
+
+    # Try to get from llm config
+    try:
+        api_key = llm.get_key("vertex")
+        if api_key:
+            return api_key
+    except:
+        pass
+
+    return None
+
+
+def get_vertex_credentials():
+    """
+    Get Google Cloud credentials for Vertex AI.
+    Supports:
+    1. Explicit service account file via GOOGLE_APPLICATION_CREDENTIALS env var or config
+    2. Application Default Credentials (ADC)
+
+    Returns a tuple of (credentials, project_id)
+    If credentials cannot be obtained, returns (None, None)
+    """
+    # Try to get credentials path from environment or config
+    creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+
+    if creds_path and os.path.exists(creds_path):
+        # Use explicit service account file
+        credentials = service_account.Credentials.from_service_account_file(
+            creds_path,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        # Extract project_id from service account file
+        with open(creds_path) as f:
+            service_account_info = json.load(f)
+            project_id = service_account_info.get("project_id")
+        return credentials, project_id
+    else:
+        # Try to use Application Default Credentials
+        try:
+            credentials, project_id = default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            return credentials, project_id
+        except Exception:
+            # If ADC is not available, return None - API key may be used instead
+            return None, None
+
+
+def get_access_token(credentials):
+    """
+    Get a fresh OAuth2 access token from credentials.
+    Refreshes the token if it's expired.
+    """
+    if not credentials.valid:
+        credentials.refresh(Request())
+    return credentials.token
+
+
+def get_project_and_region():
+    """
+    Get GCP project ID and region from environment variables or config.
+    Precedence: env vars > config > defaults
+
+    Returns a tuple of (project_id, region)
+    """
+    # Get project ID
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    if not project_id:
+        # Try to get from llm config
+        try:
+            project_id = llm.get_key("", "vertex-project", "GOOGLE_CLOUD_PROJECT")
+        except:
+            pass
+
+    # Get region (default to 'global')
+    region = os.environ.get("GOOGLE_CLOUD_REGION", "global")
+    if region == "global":
+        # Try to get from config
+        try:
+            config_region = llm.get_key("", "vertex-region", "GOOGLE_CLOUD_REGION")
+            if config_region:
+                region = config_region
+        except:
+            pass
+
+    return project_id, region
+
+
+def build_vertex_endpoint(region, project_id, model_id, method="streamGenerateContent"):
+    """
+    Build the Vertex AI endpoint URL.
+
+    For 'global' region: https://aiplatform.googleapis.com/v1/...
+    For specific regions: https://{region}-aiplatform.googleapis.com/v1/...
+    """
+    if region == "global":
+        base_url = "https://aiplatform.googleapis.com"
+    else:
+        base_url = f"https://{region}-aiplatform.googleapis.com"
+
+    return f"{base_url}/v1/projects/{project_id}/locations/{region}/publishers/google/models/{model_id}:{method}"
 
 
 @llm.hookimpl
@@ -175,21 +393,20 @@ def register_models(register):
         can_vision = model_id not in NO_VISION_MODELS
         can_schema = "flash-thinking" not in model_id and "gemma-3" not in model_id
         register(
-            GeminiPro(
+            Vertex(
                 model_id,
                 can_vision=can_vision,
                 can_google_search=can_google_search,
                 can_thinking_budget=can_thinking_budget,
                 can_schema=can_schema,
             ),
-            AsyncGeminiPro(
+            AsyncVertex(
                 model_id,
                 can_vision=can_vision,
                 can_google_search=can_google_search,
                 can_thinking_budget=can_thinking_budget,
                 can_schema=can_schema,
             ),
-            aliases=(model_id,),
         )
 
 
@@ -250,13 +467,16 @@ def _resolve_refs(schema, defs):
 
 
 class _SharedGemini:
-    needs_key = "gemini"
-    key_env_var = "LLM_GEMINI_KEY"
     can_stream = True
     supports_schema = True
     supports_tools = True
 
     attachment_types = set()
+
+    # Vertex AI credentials and configuration
+    _credentials = None
+    _project_id = None
+    _region = None
 
     class Options(llm.Options):
         code_execution: Optional[bool] = Field(
@@ -338,7 +558,7 @@ class _SharedGemini:
         can_thinking_budget=False,
         can_schema=False,
     ):
-        self.model_id = "gemini/{}".format(gemini_model_id)
+        self.model_id = "vertex/{}".format(gemini_model_id)
         self.gemini_model_id = gemini_model_id
         self.can_google_search = can_google_search
         self.supports_schema = can_schema
@@ -349,6 +569,65 @@ class _SharedGemini:
             self.Options = self.OptionsWithThinkingBudget
         if can_vision:
             self.attachment_types = ATTACHMENT_TYPES
+
+    def get_credentials_and_config(self):
+        """
+        Get Vertex AI credentials, project, and region.
+        Caches credentials to avoid re-authentication on every request.
+
+        Returns a tuple of (credentials, project_id, region)
+
+        Note: credentials may be None if using API key authentication
+        """
+        # Check if we're using API key authentication
+        api_key = get_api_key()
+
+        # Only try to get credentials if not using API key or if not cached
+        if self._credentials is None and not api_key:
+            self._credentials, creds_project = get_vertex_credentials()
+            # Store the project from credentials for later use
+            if not hasattr(self, '_creds_project'):
+                self._creds_project = creds_project
+        elif self._credentials is None and api_key:
+            # Using API key, skip credential fetching
+            _, creds_project = None, None
+            if not hasattr(self, '_creds_project'):
+                self._creds_project = None
+
+        # Get project and region (with env var/config override)
+        project_id, region = get_project_and_region()
+
+        # If project_id not found in env/config, use the one from credentials
+        if not project_id:
+            project_id = getattr(self, '_creds_project', None)
+
+        if not project_id:
+            raise llm.ModelError(
+                "No GCP project ID found. Set GOOGLE_CLOUD_PROJECT environment variable "
+                "or run: llm vertex set-project <project-id>"
+            )
+
+        return self._credentials, project_id, region
+
+    def get_auth_header(self):
+        """
+        Get the authentication header (API key or OAuth2 token).
+        API keys are recommended for testing only, not production.
+        """
+        # Check for API key first (simpler authentication)
+        api_key = get_api_key()
+        if api_key:
+            return {"x-goog-api-key": api_key}
+
+        # Fall back to OAuth2 authentication
+        credentials, _, _ = self.get_credentials_and_config()
+        if credentials is None:
+            raise llm.ModelError(
+                "No authentication available. Either set an API key with 'llm keys set vertex' "
+                "or configure Application Default Credentials with 'gcloud auth application-default login'"
+            )
+        token = get_access_token(credentials)
+        return {"Authorization": f"Bearer {token}"}
 
     def build_messages(self, prompt, conversation):
         messages = []
@@ -551,9 +830,11 @@ class _SharedGemini:
             pass
 
 
-class GeminiPro(_SharedGemini, llm.KeyModel):
-    def execute(self, prompt, stream, response, conversation, key):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model_id}:streamGenerateContent"
+class Vertex(_SharedGemini, llm.Model):
+    def execute(self, prompt, stream, response, conversation):
+        # Get Vertex AI credentials and configuration
+        _, project_id, region = self.get_credentials_and_config()
+        url = build_vertex_endpoint(region, project_id, self.gemini_model_id, "streamGenerateContent")
         gathered = []
         body = self.build_request_body(prompt, conversation)
 
@@ -561,7 +842,7 @@ class GeminiPro(_SharedGemini, llm.KeyModel):
             "POST",
             url,
             timeout=prompt.options.timeout,
-            headers={"x-goog-api-key": self.get_key(key)},
+            headers=self.get_auth_header(),
             json=body,
         ) as http_response:
             events = ijson.sendable_list()
@@ -586,9 +867,11 @@ class GeminiPro(_SharedGemini, llm.KeyModel):
         self.set_usage(response)
 
 
-class AsyncGeminiPro(_SharedGemini, llm.AsyncKeyModel):
-    async def execute(self, prompt, stream, response, conversation, key):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model_id}:streamGenerateContent"
+class AsyncVertex(_SharedGemini, llm.AsyncModel):
+    async def execute(self, prompt, stream, response, conversation):
+        # Get Vertex AI credentials and configuration
+        _, project_id, region = self.get_credentials_and_config()
+        url = build_vertex_endpoint(region, project_id, self.gemini_model_id, "streamGenerateContent")
         gathered = []
         body = self.build_request_body(prompt, conversation)
 
@@ -597,7 +880,7 @@ class AsyncGeminiPro(_SharedGemini, llm.AsyncKeyModel):
                 "POST",
                 url,
                 timeout=prompt.options.timeout,
-                headers={"x-goog-api-key": self.get_key(key)},
+                headers=self.get_auth_header(),
                 json=body,
             ) as http_response:
                 events = ijson.sendable_list()
@@ -618,6 +901,8 @@ class AsyncGeminiPro(_SharedGemini, llm.AsyncKeyModel):
                             gathered.append(event)
                         events.clear()
         response.response_json = gathered[-1]
+        resolved_model = gathered[-1]["modelVersion"]
+        response.set_resolved_model(resolved_model)
         self.set_usage(response)
 
 
@@ -639,33 +924,85 @@ def register_embedding_models(register):
 
 
 class GeminiEmbeddingModel(llm.EmbeddingModel):
-    needs_key = "gemini"
-    key_env_var = "LLM_GEMINI_KEY"
     batch_size = 20
+
+    # Vertex AI credentials (shared across instances)
+    _credentials = None
 
     def __init__(self, model_id, gemini_model_id, truncate=None):
         self.model_id = model_id
         self.gemini_model_id = gemini_model_id
         self.truncate = truncate
 
+    def get_credentials_and_config(self):
+        """Get Vertex AI credentials, project, and region."""
+        # Check if we're using API key authentication
+        api_key = get_api_key()
+
+        # Only try to get credentials if not using API key or if not cached
+        if self._credentials is None and not api_key:
+            self._credentials, creds_project = get_vertex_credentials()
+            # Store the project from credentials for later use
+            if not hasattr(self, '_creds_project'):
+                self._creds_project = creds_project
+        elif self._credentials is None and api_key:
+            # Using API key, skip credential fetching
+            if not hasattr(self, '_creds_project'):
+                self._creds_project = None
+
+        # Get project and region
+        project_id, region = get_project_and_region()
+
+        # If project_id not found in env/config, use the one from credentials
+        if not project_id:
+            project_id = getattr(self, '_creds_project', None)
+
+        if not project_id:
+            raise llm.ModelError(
+                "No GCP project ID found. Set GOOGLE_CLOUD_PROJECT environment variable "
+                "or run: llm vertex set-project <project-id>"
+            )
+
+        return self._credentials, project_id, region
+
     def embed_batch(self, items):
+        # Get Vertex AI credentials and configuration
+        credentials, project_id, region = self.get_credentials_and_config()
+
         headers = {
             "Content-Type": "application/json",
-            "x-goog-api-key": self.get_key(),
         }
+
+        # Check for API key first
+        api_key = get_api_key()
+        if api_key:
+            headers["x-goog-api-key"] = api_key
+        else:
+            # Use OAuth2 token
+            if credentials is None:
+                raise llm.ModelError(
+                    "No authentication available. Either set an API key with 'llm keys set vertex' "
+                    "or configure Application Default Credentials with 'gcloud auth application-default login'"
+                )
+            token = get_access_token(credentials)
+            headers["Authorization"] = f"Bearer {token}"
+
         data = {
             "requests": [
                 {
-                    "model": "models/" + self.gemini_model_id,
+                    "model": f"projects/{project_id}/locations/{region}/publishers/google/models/{self.gemini_model_id}",
                     "content": {"parts": [{"text": item}]},
                 }
                 for item in items
             ]
         }
 
+        # Build Vertex AI endpoint
+        url = build_vertex_endpoint(region, project_id, self.gemini_model_id, "batchEmbedContents")
+
         with httpx.Client() as client:
             response = client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model_id}:batchEmbedContents",
+                url,
                 headers=headers,
                 json=data,
                 timeout=None,
@@ -681,54 +1018,136 @@ class GeminiEmbeddingModel(llm.EmbeddingModel):
 @llm.hookimpl
 def register_commands(cli):
     @cli.group()
-    def gemini():
-        "Commands relating to the llm-gemini plugin"
+    def vertex():
+        "Commands relating to the llm-vertex plugin (Vertex AI)"
 
-    @gemini.command()
-    @click.option("--key", help="API key to use")
-    @click.option(
-        "methods",
-        "--method",
-        multiple=True,
-        help="Filter by supported generation methods",
-    )
-    def models(key, methods):
+    @vertex.command(name="set-project")
+    @click.argument("project_id")
+    def set_project(project_id):
         """
-        List of Gemini models pulled from their API
+        Set the GCP project ID for Vertex AI
 
-        Use --method to filter by supported generation methods for example:
-
-        llm gemini models --method generateContent --method embedContent
+        Example: llm vertex set-project my-gcp-project
         """
-        key = llm.get_key(key, "gemini", "LLM_GEMINI_KEY")
-        if not key:
-            raise click.ClickException(
-                "You must set the LLM_GEMINI_KEY environment variable or use --key"
-            )
-        url = f"https://generativelanguage.googleapis.com/v1beta/models"
-        response = httpx.get(url, headers={"x-goog-api-key": key})
-        response.raise_for_status()
-        models = response.json()["models"]
-        if methods:
-            models = [
-                model
-                for model in models
-                if any(
-                    method in model["supportedGenerationMethods"] for method in methods
-                )
-            ]
-        click.echo(json.dumps(models, indent=2))
+        _save_vertex_config("vertex-project", project_id)
+        click.echo(f"GCP project ID set to: {project_id}")
 
-    @gemini.command()
-    @click.option("--key", help="API key to use")
-    def files(key):
-        "List of files uploaded to the Gemini API"
-        key = llm.get_key(key, "gemini", "LLM_GEMINI_KEY")
-        response = httpx.get(
-            f"https://generativelanguage.googleapis.com/v1beta/files?key={key}",
-        )
-        response.raise_for_status()
-        if "files" in response.json():
-            click.echo(json.dumps(response.json()["files"], indent=2))
+    @vertex.command(name="set-region")
+    @click.argument("region")
+    def set_region(region):
+        """
+        Set the GCP region for Vertex AI (default: global)
+
+        Example: llm vertex set-region us-central1
+
+        Use 'llm vertex list-regions' to see all available regions.
+        """
+        # Validate region
+        if not validate_region(region):
+            suggestions = get_region_suggestions(region)
+            error_msg = f"Invalid region: {region}\n\n"
+            if suggestions:
+                error_msg += f"Did you mean one of these?\n"
+                for suggestion in suggestions:
+                    error_msg += f"  - {suggestion}\n"
+            error_msg += f"\nUse 'llm vertex list-regions' to see all valid regions."
+            error_msg += f"\nSee https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations for details."
+            raise click.ClickException(error_msg)
+
+        # Warn about global endpoint limitations
+        if region == "global":
+            click.echo("⚠️  Warning: The 'global' endpoint has limitations:")
+            click.echo("   - Does not support tuning, batch prediction, or RAG corpus creation")
+            click.echo("   - Does not guarantee region-specific ML processing")
+            click.echo("   - Does not provide data residency compliance")
+            click.echo("   Consider using a specific region if you need these features.\n")
+
+        _save_vertex_config("vertex-region", region)
+        click.echo(f"GCP region set to: {region}")
+
+    @vertex.command(name="list-regions")
+    def list_regions():
+        """
+        List all available Vertex AI regions
+
+        Shows all regions where Vertex AI Generative AI models are available.
+        Note: Some models may not be available in all regions.
+        """
+        click.echo("Available Vertex AI Regions:\n")
+
+        # Group regions by area
+        regions_by_area = {
+            "Global": ["global"],
+            "United States": [
+                "us-central1", "us-east1", "us-east4", "us-east5",
+                "us-south1", "us-west1", "us-west4"
+            ],
+            "Canada": ["northamerica-northeast1"],
+            "South America": ["southamerica-east1"],
+            "Europe": [
+                "europe-west1", "europe-west2", "europe-west3", "europe-west4",
+                "europe-west6", "europe-west8", "europe-west9", "europe-north1",
+                "europe-southwest1", "europe-central2"
+            ],
+            "Asia Pacific": [
+                "asia-east1", "asia-northeast1", "asia-northeast3",
+                "asia-southeast1", "asia-south1", "australia-southeast1",
+                "australia-southeast2"
+            ],
+            "Middle East": ["me-central1", "me-central2", "me-west1"],
+        }
+
+        for area, regions in regions_by_area.items():
+            click.echo(f"{area}:")
+            for region in sorted(regions):
+                if region == "global":
+                    click.echo(f"  {region} (limited features - see docs)")
+                else:
+                    click.echo(f"  {region}")
+            click.echo()
+
+        click.echo("⚠️  Note: 'global' endpoint limitations:")
+        click.echo("   - Does not support tuning, batch prediction, or RAG corpus")
+        click.echo("   - Does not guarantee region-specific data processing")
+        click.echo("   - Does not provide data residency compliance\n")
+        click.echo("For more details, see:")
+        click.echo("https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations")
+
+    @vertex.command(name="set-credentials")
+    @click.argument("credentials_path")
+    def set_credentials(credentials_path):
+        """
+        Set the path to the service account JSON file
+
+        Example: llm vertex set-credentials /path/to/service-account.json
+        """
+        if not os.path.exists(credentials_path):
+            raise click.ClickException(f"File not found: {credentials_path}")
+        _save_vertex_config("vertex-credentials-path", credentials_path)
+        click.echo(f"Credentials path set to: {credentials_path}")
+        click.echo("Note: You can also set GOOGLE_APPLICATION_CREDENTIALS environment variable")
+
+    @vertex.command(name="config")
+    def show_config():
+        """
+        Show current Vertex AI configuration
+        """
+        project_id, region = get_project_and_region()
+        creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "Not set")
+        api_key = get_api_key()
+
+        click.echo("Current Vertex AI Configuration:")
+        click.echo(f"  Project ID: {project_id or 'Not set (will use ADC default)'}")
+        click.echo(f"  Region: {region}")
+        click.echo(f"  API Key: {'Set' if api_key else 'Not set'}")
+        click.echo(f"  Credentials Path: {creds_path}")
+        click.echo("\nEnvironment Variables:")
+        click.echo(f"  GOOGLE_CLOUD_PROJECT: {os.environ.get('GOOGLE_CLOUD_PROJECT', 'Not set')}")
+        click.echo(f"  GOOGLE_CLOUD_REGION: {os.environ.get('GOOGLE_CLOUD_REGION', 'Not set')}")
+        click.echo(f"  GOOGLE_CLOUD_API_KEY: {'Set' if os.environ.get('GOOGLE_CLOUD_API_KEY') else 'Not set'}")
+        click.echo(f"  GOOGLE_APPLICATION_CREDENTIALS: {creds_path}")
+        click.echo("\nAuthentication Method:")
+        if api_key:
+            click.echo("  Using API key (recommended for testing only)")
         else:
-            click.echo("No files uploaded to the Gemini API.", err=True)
+            click.echo("  Using OAuth2/ADC (recommended for production)")
