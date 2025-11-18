@@ -53,6 +53,10 @@ GOOGLE_SEARCH_MODELS = {
     "gemini-flash-lite-latest",
     "gemini-2.5-flash-preview-09-2025",
     "gemini-2.5-flash-lite-preview-09-2025",
+    # Gemini 3 models (global region only)
+    "gemini-3-pro-preview",
+    "gemini-3-pro-preview-11-2025",
+    "gemini-3-pro-preview-11-2025-thinking",
 }
 
 # Older Google models used google_search_retrieval instead of google_search
@@ -82,6 +86,10 @@ THINKING_BUDGET_MODELS = {
     "gemini-flash-lite-latest",
     "gemini-2.5-flash-preview-09-2025",
     "gemini-2.5-flash-lite-preview-09-2025",
+    # Gemini 3 models (global region only)
+    "gemini-3-pro-preview",
+    "gemini-3-pro-preview-11-2025",
+    "gemini-3-pro-preview-11-2025-thinking",
 }
 
 NO_VISION_MODELS = {"gemma-3-1b-it", "gemma-3n-e4b-it"}
@@ -125,6 +133,13 @@ VALID_REGIONS = {
     "me-central1",
     "me-central2",
     "me-west1",
+}
+
+# Models that require specific regions (will override user's configured region)
+MODEL_REGION_REQUIREMENTS = {
+    "gemini-3-pro-preview": "global",
+    "gemini-3-pro-preview-11-2025": "global",
+    "gemini-3-pro-preview-11-2025-thinking": "global",
 }
 
 ATTACHMENT_TYPES = {
@@ -326,7 +341,14 @@ def build_vertex_endpoint(region, project_id, model_id, method="streamGenerateCo
 
     For 'global' region: https://aiplatform.googleapis.com/v1/...
     For specific regions: https://{region}-aiplatform.googleapis.com/v1/...
+
+    Some models (e.g., Gemini 3) require specific regions and will override
+    the user's configured region automatically.
     """
+    # Check if this model requires a specific region
+    if model_id in MODEL_REGION_REQUIREMENTS:
+        region = MODEL_REGION_REQUIREMENTS[model_id]
+
     if region == "global":
         base_url = "https://aiplatform.googleapis.com"
     else:
@@ -387,6 +409,10 @@ def register_models(register):
         "gemini-flash-lite-latest",
         "gemini-2.5-flash-preview-09-2025",
         "gemini-2.5-flash-lite-preview-09-2025",
+        # 18th November 2025 - Gemini 3 models:
+        "gemini-3-pro-preview",
+        "gemini-3-pro-preview-11-2025",
+        "gemini-3-pro-preview-11-2025-thinking",
     ):
         can_google_search = model_id in GOOGLE_SEARCH_MODELS
         can_thinking_budget = model_id in THINKING_BUDGET_MODELS

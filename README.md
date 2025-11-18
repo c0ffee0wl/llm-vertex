@@ -130,6 +130,16 @@ llm "A joke about a pelican and a walrus"
 
 All Gemini models are available through Vertex AI:
 
+### Gemini 3 (Latest - Preview)
+
+- `vertex/gemini-3-pro-preview`: Gemini 3 Pro preview (global region only)
+- `vertex/gemini-3-pro-preview-11-2025`: Gemini 3 Pro November 2025 version (global region only)
+- `vertex/gemini-3-pro-preview-11-2025-thinking`: Gemini 3 Pro with thinking mode (global region only)
+
+**Note:** Gemini 3 models automatically use the global endpoint regardless of your configured region.
+
+### Gemini 2.5 and earlier
+
 - `vertex/gemini-2.5-flash-lite-preview-09-2025`
 - `vertex/gemini-2.5-flash-preview-09-2025`
 - `vertex/gemini-flash-lite-latest`: Latest Gemini Flash Lite
@@ -222,6 +232,28 @@ The `gemini-2.5-pro` model is available in the following regions:
   - [Gemini 2.5 Flash Documentation](https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-flash)
   - [Gemini 2.5 Pro Documentation](https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-pro)
   - [All Vertex AI Locations](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations)
+
+### Gemini 3 Pro (Preview)
+
+The `gemini-3-pro-preview` and related Gemini 3 models (launched November 18, 2025) are currently **only available via the Global endpoint**.
+
+| Model ID | Availability | Auto-Region Override |
+|----------|--------------|---------------------|
+| gemini-3-pro-preview | Global only | Yes - automatically uses global endpoint |
+| gemini-3-pro-preview-11-2025 | Global only | Yes - automatically uses global endpoint |
+| gemini-3-pro-preview-11-2025-thinking | Global only | Yes - automatically uses global endpoint |
+
+**Key Features:**
+- 1 million token context window
+- 64K token output limit
+- Multimodal support (text, images, audio, video)
+- Google Search grounding
+- Thinking budget parameter support
+- Knowledge cutoff: January 2025
+
+**Important:** These models automatically use the global endpoint regardless of your configured region setting. You don't need to change your `GOOGLE_CLOUD_REGION` configuration - the plugin handles this automatically.
+
+For more information, see the [Gemini 3 Pro Documentation](https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-pro).
 
 ### Images, audio and video
 
