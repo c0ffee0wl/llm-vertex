@@ -6,6 +6,7 @@ import json
 import os
 import pytest
 import pydantic
+import sys
 from pydantic import BaseModel
 from typing import List, Optional
 from llm_vertex import cleanup_schema
@@ -65,13 +66,16 @@ async def test_prompt():
     assert response.input_tokens == 9
     assert response.output_tokens == 2
 
-    # And try it async too
-    async_model = llm.get_async_model("gemini-1.5-flash-latest")
-    response = await async_model.prompt(
-        "Name for a pet pelican, just the name"
-    )
-    text = await response.text()
-    assert text == "Percy\n"
+    # Skip async test on Python 3.14 due to httpcore cleanup incompatibility
+    # https://github.com/simonw/llm-gemini/issues/114
+    if sys.version_info < (3, 14):
+        # And try it async too
+        async_model = llm.get_async_model("gemini-1.5-flash-latest")
+        response = await async_model.prompt(
+            "Name for a pet pelican, just the name"
+        )
+        text = await response.text()
+        assert text == "Percy\n"
 
 
 @pytest.mark.vcr
@@ -590,3 +594,163 @@ def test_tools():
     assert second.tool_calls()[0].name == "pelican_name_generator"
     assert second.prompt.tool_results[0].output == "Charles"
     assert third.prompt.tool_results[0].output == "Sammy"
+
+
+@pytest.mark.vcr
+def test_tools_with_nested_pydantic_models():
+    """Test that tools with nested Pydantic models work correctly.
+
+    This verifies that the cleanup_schema function is applied to tool input schemas,
+    which is critical for nested models that use $ref and $defs.
+    """
+    class Address(BaseModel):
+        street: str
+        city: str
+
+    class PersonInput(BaseModel):
+        name: str
+        age: int
+        address: Address
+
+    def create_person(name: str, age: int, address: dict) -> str:
+        return f"Created person: {name}, age {age}, living at {address['street']}, {address['city']}"
+
+    model = llm.get_model("gemini-2.0-flash")
+
+    # Create a tool with nested Pydantic model input schema
+    tool = llm.Tool(
+        name="create_person",
+        description="Create a person with name, age, and address",
+        input_schema=PersonInput,
+        function=create_person,
+    )
+
+    # This should not raise an error about "$defs" or "$ref"
+    # The cleanup_schema should remove those before sending to the API
+    chain_response = model.chain(
+        "Create a person named Alice, age 30, living at 123 Main St in San Francisco",
+        tools=[tool],
+    )
+
+    # Verify the tool was called
+    responses = chain_response._responses
+    assert len(responses) >= 1
+
+    # Check that the first response contains a tool call
+    first_response = responses[0]
+    tool_calls = first_response.tool_calls()
+    assert len(tool_calls) >= 1
+    assert tool_calls[0].name == "create_person"
+
+
+def test_recursive_schema_detection_direct():
+    """Test that direct recursion is detected and raises an error."""
+    # Direct recursion: Node has a next field that references Node
+    schema = {
+        "properties": {
+            "value": {"type": "integer"},
+            "next": {"anyOf": [{"$ref": "#/$defs/Node"}, {"type": "null"}]},
+        },
+        "required": ["value"],
+        "type": "object",
+        "$defs": {
+            "Node": {
+                "properties": {
+                    "value": {"type": "integer"},
+                    "next": {"anyOf": [{"$ref": "#/$defs/Node"}, {"type": "null"}]},
+                },
+                "required": ["value"],
+                "type": "object",
+            }
+        },
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        cleanup_schema(copy.deepcopy(schema))
+
+    assert "Recursive schema detected" in str(exc_info.value)
+    assert "Node" in str(exc_info.value)
+
+
+def test_recursive_schema_detection_indirect():
+    """Test that indirect recursion is detected and raises an error."""
+    # Indirect recursion: A -> B -> A
+    schema = {
+        "properties": {
+            "name": {"type": "string"},
+            "b_ref": {"$ref": "#/$defs/B"},
+        },
+        "required": ["name"],
+        "type": "object",
+        "$defs": {
+            "A": {
+                "properties": {
+                    "name": {"type": "string"},
+                    "b_ref": {"$ref": "#/$defs/B"},
+                },
+                "required": ["name"],
+                "type": "object",
+            },
+            "B": {
+                "properties": {
+                    "value": {"type": "integer"},
+                    "a_ref": {"$ref": "#/$defs/A"},
+                },
+                "required": ["value"],
+                "type": "object",
+            },
+        },
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        cleanup_schema(copy.deepcopy(schema))
+
+    assert "Recursive schema detected" in str(exc_info.value)
+
+
+def test_recursive_schema_detection_pydantic():
+    """Test that recursive Pydantic models are detected and raise an error."""
+    from typing import Optional
+    from pydantic import BaseModel
+
+    class Node(BaseModel):
+        value: int
+        next: Optional["Node"] = None
+
+    # Get the schema from the Pydantic model
+    schema = Node.model_json_schema()
+
+    with pytest.raises(ValueError) as exc_info:
+        cleanup_schema(copy.deepcopy(schema))
+
+    assert "Recursive schema detected" in str(exc_info.value)
+
+
+def test_youtube_url_detection():
+    """Test that YouTube URLs are correctly detected, including Shorts."""
+    from llm_vertex import is_youtube_url
+
+    # Regular YouTube URLs
+    assert is_youtube_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert is_youtube_url("http://youtube.com/watch?v=dQw4w9WgXcQ")
+    assert is_youtube_url("https://youtube.com/watch?v=dQw4w9WgXcQ")
+
+    # YouTube short URLs
+    assert is_youtube_url("https://youtu.be/dQw4w9WgXcQ")
+    assert is_youtube_url("http://youtu.be/dQw4w9WgXcQ")
+
+    # YouTube embed URLs
+    assert is_youtube_url("https://www.youtube.com/embed/dQw4w9WgXcQ")
+    assert is_youtube_url("http://youtube.com/embed/dQw4w9WgXcQ")
+
+    # YouTube Shorts URLs
+    assert is_youtube_url("https://www.youtube.com/shorts/dQw4w9WgXcQ")
+    assert is_youtube_url("http://youtube.com/shorts/dQw4w9WgXcQ")
+    assert is_youtube_url("https://youtube.com/shorts/dQw4w9WgXcQ")
+
+    # Non-YouTube URLs
+    assert not is_youtube_url("https://example.com/watch?v=dQw4w9WgXcQ")
+    assert not is_youtube_url("https://vimeo.com/123456")
+    assert not is_youtube_url("https://www.google.com")
+    assert not is_youtube_url("")
+    assert not is_youtube_url(None)

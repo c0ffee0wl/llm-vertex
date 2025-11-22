@@ -1,6 +1,6 @@
 [project]
 name = "llm-vertex"
-version = "0.27.0"
+version = "0.27.1"
 description = "LLM plugin to access Google's Gemini models via Vertex AI"
 readme = "README.md"
 authors = [{name = "Simon Willison"}]
@@ -9,16 +9,15 @@ classifiers = []
 dependencies = [
     "llm>=0.27",
     "httpx",
-    "requests",
     "ijson",
-    "google-auth"
+    "google-auth[requests]"
 ]
 
 [project.urls]
-Homepage = "https://github.com/simonw/llm-gemini"
-Changelog = "https://github.com/simonw/llm-gemini/releases"
-Issues = "https://github.com/simonw/llm-gemini/issues"
-CI = "https://github.com/simonw/llm-gemini/actions"
+Homepage = "https://github.com/c0ffee0wl/llm-vertex"
+Changelog = "https://github.com/c0ffee0wl/llm-vertex/releases"
+Issues = "https://github.com/c0ffee0wl/llm-vertex/issues"
+CI = "https://github.com/c0ffee0wl/llm-vertex/actions"
 
 [project.entry-points.llm]
 vertex = "llm_vertex"

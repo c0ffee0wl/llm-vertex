@@ -5,6 +5,8 @@ import ijson
 import json
 import llm
 import os
+import re
+from enum import Enum
 from google.auth import default
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
@@ -92,6 +94,12 @@ THINKING_BUDGET_MODELS = {
     "gemini-3-pro-preview-11-2025-thinking",
 }
 
+THINKING_LEVEL_MODELS = {
+    "gemini-3-pro-preview",
+    "gemini-3-pro-preview-11-2025",
+    "gemini-3-pro-preview-11-2025-thinking",
+}
+
 NO_VISION_MODELS = {"gemma-3-1b-it", "gemma-3n-e4b-it"}
 
 # Valid Vertex AI regions as of 2025
@@ -146,6 +154,7 @@ ATTACHMENT_TYPES = {
     # Text
     "text/plain",
     "text/csv",
+    "text/html; charset=utf-8",
     # PDF
     "application/pdf",
     # Images
@@ -174,7 +183,21 @@ ATTACHMENT_TYPES = {
     "video/wmv",
     "video/3gpp",
     "video/quicktime",
+    "video/youtube",
 }
+
+
+def is_youtube_url(url):
+    """Check if a URL is a YouTube video URL"""
+    if not url:
+        return False
+    youtube_patterns = [
+        r"^https?://(www\.)?youtube\.com/watch\?v=",
+        r"^https?://youtu\.be/",
+        r"^https?://(www\.)?youtube\.com/embed/",
+        r"^https?://(www\.)?youtube\.com/shorts/",
+    ]
+    return any(re.match(pattern, url) for pattern in youtube_patterns)
 
 
 def _save_vertex_config(key, value):
@@ -416,6 +439,7 @@ def register_models(register):
     ):
         can_google_search = model_id in GOOGLE_SEARCH_MODELS
         can_thinking_budget = model_id in THINKING_BUDGET_MODELS
+        can_thinking_level = model_id in THINKING_LEVEL_MODELS
         can_vision = model_id not in NO_VISION_MODELS
         can_schema = "flash-thinking" not in model_id and "gemma-3" not in model_id
         register(
@@ -424,6 +448,7 @@ def register_models(register):
                 can_vision=can_vision,
                 can_google_search=can_google_search,
                 can_thinking_budget=can_thinking_budget,
+                can_thinking_level=can_thinking_level,
                 can_schema=can_schema,
             ),
             AsyncVertex(
@@ -431,6 +456,7 @@ def register_models(register):
                 can_vision=can_vision,
                 can_google_search=can_google_search,
                 can_thinking_budget=can_thinking_budget,
+                can_thinking_level=can_thinking_level,
                 can_schema=can_schema,
             ),
         )
@@ -443,6 +469,9 @@ def resolve_type(attachment):
         mime_type = "audio/mp3"
     if mime_type == "application/ogg":
         mime_type = "audio/ogg"
+    # Check if this is a YouTube URL
+    if attachment.url and is_youtube_url(attachment.url):
+        return "video/youtube"
     return mime_type
 
 
@@ -472,24 +501,81 @@ def cleanup_schema(schema, in_properties=False):
     return schema
 
 
-def _resolve_refs(schema, defs):
-    """Recursively resolve $ref references in schema using definitions."""
+def _resolve_refs(schema, defs, expansion_stack=None):
+    """Recursively resolve $ref references in schema using definitions.
+
+    Args:
+        schema: The schema dictionary or list to process
+        defs: Dictionary of definitions to resolve references from
+        expansion_stack: List tracking currently expanding definitions (for cycle detection)
+
+    Raises:
+        ValueError: If a recursive schema is detected
+    """
+    if expansion_stack is None:
+        expansion_stack = []
+
     if isinstance(schema, dict):
         if "$ref" in schema:
             # Extract the reference path (e.g., "#/$defs/Dog" -> "Dog")
             ref_path = schema.pop("$ref")
             if ref_path.startswith("#/$defs/"):
                 def_name = ref_path.split("/")[-1]
+
+                # Check for recursion
+                if def_name in expansion_stack:
+                    # Determine if this is direct or indirect recursion
+                    if expansion_stack[-1] == def_name:
+                        raise ValueError(
+                            f"Recursive schema detected: '{def_name}' directly "
+                            f"references itself. The Gemini API does not support "
+                            f"recursive Pydantic models. Please use a non-recursive "
+                            f"schema structure."
+                        )
+                    else:
+                        # Get the immediate intermediate reference
+                        intermediate = expansion_stack[-1]
+                        raise ValueError(
+                            f"Recursive schema detected: '{def_name}' indirectly "
+                            f"references itself through '{intermediate}'. The Gemini "
+                            f"API does not support recursive Pydantic models. Please "
+                            f"use a non-recursive schema structure."
+                        )
+
                 if def_name in defs:
+                    # Add to expansion stack before expanding
+                    expansion_stack.append(def_name)
                     # Replace the $ref with the actual definition
-                    schema.update(copy.deepcopy(defs[def_name]))
+                    resolved_def = copy.deepcopy(defs[def_name])
+                    schema.update(resolved_def)
+                    # Recursively resolve any refs in the resolved definition
+                    _resolve_refs(schema, defs, expansion_stack)
+                    # Remove from expansion stack after processing
+                    expansion_stack.pop()
+                    return
 
         # Recursively resolve refs in nested structures
         for value in schema.values():
-            _resolve_refs(value, defs)
+            _resolve_refs(value, defs, expansion_stack)
     elif isinstance(schema, list):
         for item in schema:
-            _resolve_refs(item, defs)
+            _resolve_refs(item, defs, expansion_stack)
+
+
+class MediaResolution(str, Enum):
+    """Allowed media resolution values for Gemini models."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    UNSPECIFIED = "unspecified"
+
+
+class ThinkingLevel(str, Enum):
+    """Allowed thinking levels for Gemini models."""
+
+    LOW = "low"
+    HIGH = "high"
 
 
 class _SharedGemini:
@@ -563,6 +649,13 @@ class _SharedGemini:
             ),
             default=None,
         )
+        media_resolution: Optional[MediaResolution] = Field(
+            description=(
+                "Media resolution for the input media (esp. YouTube) "
+                "- default is low, other values are medium, high, or unspecified"
+            ),
+            default=MediaResolution.LOW,
+        )
 
     class OptionsWithGoogleSearch(Options):
         google_search: Optional[bool] = Field(
@@ -576,12 +669,19 @@ class _SharedGemini:
             default=None,
         )
 
+    class OptionsWithThinkingLevel(OptionsWithGoogleSearch):
+        thinking_level: Optional[ThinkingLevel] = Field(
+            description="Indicates the thinking level. Can be 'low' or 'high'.",
+            default=None,
+        )
+
     def __init__(
         self,
         gemini_model_id,
         can_vision=True,
         can_google_search=False,
         can_thinking_budget=False,
+        can_thinking_level=False,
         can_schema=False,
     ):
         self.model_id = "vertex/{}".format(gemini_model_id)
@@ -593,6 +693,9 @@ class _SharedGemini:
         self.can_thinking_budget = can_thinking_budget
         if can_thinking_budget:
             self.Options = self.OptionsWithThinkingBudget
+        self.can_thinking_level = can_thinking_level
+        if can_thinking_level:
+            self.Options = self.OptionsWithThinkingLevel
         if can_vision:
             self.attachment_types = ATTACHMENT_TYPES
 
@@ -655,6 +758,18 @@ class _SharedGemini:
         token = get_access_token(credentials)
         return {"Authorization": f"Bearer {token}"}
 
+    def _build_attachment_part(self, attachment, mime_type):
+        """Build the appropriate part structure for an attachment."""
+        if mime_type == "video/youtube":
+            return {"fileData": {"mimeType": mime_type, "fileUri": attachment.url}}
+        else:
+            return {
+                "inlineData": {
+                    "data": attachment.base64_content(),
+                    "mimeType": mime_type,
+                }
+            }
+
     def build_messages(self, prompt, conversation):
         messages = []
         if conversation:
@@ -662,14 +777,7 @@ class _SharedGemini:
                 parts = []
                 for attachment in response.attachments:
                     mime_type = resolve_type(attachment)
-                    parts.append(
-                        {
-                            "inlineData": {
-                                "data": attachment.base64_content(),
-                                "mimeType": mime_type,
-                            }
-                        }
-                    )
+                    parts.append(self._build_attachment_part(attachment, mime_type))
                 if response.prompt.prompt:
                     parts.append({"text": response.prompt.prompt})
                 if response.prompt.tool_results:
@@ -724,14 +832,7 @@ class _SharedGemini:
             )
         for attachment in prompt.attachments:
             mime_type = resolve_type(attachment)
-            parts.append(
-                {
-                    "inlineData": {
-                        "data": attachment.base64_content(),
-                        "mimeType": mime_type,
-                    }
-                }
-            )
+            parts.append(self._build_attachment_part(attachment, mime_type))
 
         messages.append({"role": "user", "parts": parts})
         return messages
@@ -743,6 +844,19 @@ class _SharedGemini:
         }
         if prompt.system:
             body["systemInstruction"] = {"parts": [{"text": prompt.system}]}
+
+        # Check if any YouTube URLs are present in attachments
+        has_youtube = any(
+            attachment.url and is_youtube_url(attachment.url)
+            for attachment in prompt.attachments
+        ) or (
+            conversation
+            and any(
+                attachment.url and is_youtube_url(attachment.url)
+                for response in conversation.responses
+                for attachment in response.attachments
+            )
+        )
 
         tools = []
         if prompt.options and prompt.options.code_execution:
@@ -763,7 +877,7 @@ class _SharedGemini:
                         {
                             "name": tool.name,
                             "description": tool.description,
-                            "parameters": tool.input_schema,
+                            "parameters": cleanup_schema(copy.deepcopy(tool.input_schema)),
                         }
                         for tool in prompt.tools
                     ]
@@ -777,14 +891,19 @@ class _SharedGemini:
         if prompt.schema:
             generation_config.update(
                 {
-                    "response_mime_type": "application/json",
-                    "response_schema": cleanup_schema(copy.deepcopy(prompt.schema)),
+                    "responseMimeType": "application/json",
+                    "responseSchema": cleanup_schema(copy.deepcopy(prompt.schema)),
                 }
             )
 
         if self.can_thinking_budget and prompt.options.thinking_budget is not None:
-            generation_config["thinking_config"] = {
-                "thinking_budget": prompt.options.thinking_budget
+            generation_config["thinkingConfig"] = {
+                "thinkingBudget": prompt.options.thinking_budget
+            }
+
+        if self.can_thinking_level and prompt.options.thinking_level is not None:
+            generation_config["thinkingConfig"] = {
+                "thinkingLevel": prompt.options.thinking_level
             }
 
         config_map = {
@@ -794,7 +913,16 @@ class _SharedGemini:
             "top_k": "topK",
         }
         if prompt.options and prompt.options.json_object:
-            generation_config["response_mime_type"] = "application/json"
+            generation_config["responseMimeType"] = "application/json"
+
+        # Add media_resolution if specified, or default to LOW for YouTube URLs
+        if prompt.options and prompt.options.media_resolution:
+            generation_config["mediaResolution"] = (
+                f"MEDIA_RESOLUTION_{prompt.options.media_resolution.value.upper()}"
+            )
+        elif has_youtube:
+            # Default to low resolution for YouTube videos to support longer videos
+            generation_config["mediaResolution"] = "MEDIA_RESOLUTION_LOW"
 
         if any(
             getattr(prompt.options, key, None) is not None for key in config_map.keys()
