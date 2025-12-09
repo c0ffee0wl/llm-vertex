@@ -952,6 +952,9 @@ class _SharedGemini:
     def process_candidates(self, candidates, response):
         # We only use the first candidate
         for part in candidates[0]["content"]["parts"]:
+            # Skip thinking traces - they have thought=true
+            if part.get("thought"):
+                continue
             yield self.process_part(part, response)
 
     def set_usage(self, response):
