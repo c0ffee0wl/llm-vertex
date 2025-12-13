@@ -282,14 +282,22 @@ def get_vertex_credentials():
     """
     Get Google Cloud credentials for Vertex AI.
     Supports:
-    1. Explicit service account file via GOOGLE_APPLICATION_CREDENTIALS env var or config
-    2. Application Default Credentials (ADC)
+    1. Explicit service account file via GOOGLE_APPLICATION_CREDENTIALS env var
+    2. Service account file via llm config (set via 'llm vertex set-credentials')
+    3. Application Default Credentials (ADC)
 
     Returns a tuple of (credentials, project_id)
     If credentials cannot be obtained, returns (None, None)
     """
-    # Try to get credentials path from environment or config
+    # 1. Try GOOGLE_APPLICATION_CREDENTIALS env var first
     creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+
+    # 2. Fall back to vertex-credentials-path from llm config
+    if not creds_path or not os.path.exists(creds_path):
+        try:
+            creds_path = llm.get_key("", "vertex-credentials-path", "")
+        except Exception:
+            creds_path = None
 
     if creds_path and os.path.exists(creds_path):
         # Use explicit service account file
@@ -303,7 +311,7 @@ def get_vertex_credentials():
             project_id = service_account_info.get("project_id")
         return credentials, project_id
     else:
-        # Try to use Application Default Credentials
+        # 3. Try to use Application Default Credentials
         try:
             credentials, project_id = default(
                 scopes=["https://www.googleapis.com/auth/cloud-platform"]
