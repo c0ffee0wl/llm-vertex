@@ -1071,38 +1071,38 @@ class AsyncVertex(_SharedGemini, llm.AsyncModel):
 def register_embedding_models(register):
     # New recommended model - gemini-embedding-001 (3072 dims, supports truncation)
     # Google recommends 768, 1536, or 3072 dimensions for best quality
-    register(GeminiEmbeddingModel("vertex/gemini-embedding-001", "gemini-embedding-001"))
+    register(VertexEmbeddingModel("vertex/gemini-embedding-001", "gemini-embedding-001"))
     for i in (768, 1536):
         register(
-            GeminiEmbeddingModel(
+            VertexEmbeddingModel(
                 f"vertex/gemini-embedding-001-{i}", "gemini-embedding-001", i
             ),
         )
 
     # Current stable models
-    register(GeminiEmbeddingModel("vertex/text-embedding-005", "text-embedding-005"))
-    register(GeminiEmbeddingModel("vertex/text-embedding-004", "text-embedding-004"))
+    register(VertexEmbeddingModel("vertex/text-embedding-005", "text-embedding-005"))
+    register(VertexEmbeddingModel("vertex/text-embedding-004", "text-embedding-004"))
     register(
-        GeminiEmbeddingModel(
+        VertexEmbeddingModel(
             "vertex/text-multilingual-embedding-002", "text-multilingual-embedding-002"
         )
     )
 
     # Deprecated experimental model (October 2025 deprecation)
     register(
-        GeminiEmbeddingModel(
+        VertexEmbeddingModel(
             "vertex/gemini-embedding-exp-03-07", "gemini-embedding-exp-03-07"
         ),
     )
     for i in (128, 256, 512, 1024, 2048):
         register(
-            GeminiEmbeddingModel(
+            VertexEmbeddingModel(
                 f"vertex/gemini-embedding-exp-03-07-{i}", "gemini-embedding-exp-03-07", i
             ),
         )
 
 
-class GeminiEmbeddingModel(llm.EmbeddingModel):
+class VertexEmbeddingModel(llm.EmbeddingModel):
     batch_size = 20
 
     # Vertex AI credentials (shared across instances)
