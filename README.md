@@ -342,11 +342,33 @@ llm -m vertex/gemini-2.5-flash 'epic saga about mice' -o timeout 1.5
 
 ## Embeddings
 
-The plugin also adds support for the `gemini-embedding-exp-03-07` and `text-embedding-004` embedding models.
+This plugin provides access to Vertex AI embedding models. All embedding model IDs use the `vertex/` prefix to distinguish them from other plugins.
 
-Run that against a single string like this:
+### Available Embedding Models
+
+| Model ID | Description | Dimensions |
+|----------|-------------|------------|
+| `vertex/gemini-embedding-001` | Latest state-of-the-art model | 3072 (default) |
+| `vertex/gemini-embedding-001-768` | Truncated to 768 dimensions | 768 |
+| `vertex/gemini-embedding-001-1536` | Truncated to 1536 dimensions | 1536 |
+| `vertex/text-embedding-005` | Text embedding model | 768 |
+| `vertex/text-embedding-004` | Legacy text embedding model | 768 |
+| `vertex/text-multilingual-embedding-002` | Multilingual embedding model | 768 |
+
+**Deprecated models** (October 2025):
+- `vertex/gemini-embedding-exp-03-07` (and truncated variants -128, -256, -512, -1024, -2048)
+
+### Usage
+
 ```bash
-llm embed -m text-embedding-004 -c 'hello world'
+# Using the recommended model
+llm embed -m vertex/gemini-embedding-001 -c 'hello world'
+
+# Using a smaller dimension variant for efficiency
+llm embed -m vertex/gemini-embedding-001-768 -c 'hello world'
+
+# Using the multilingual model
+llm embed -m vertex/text-multilingual-embedding-002 -c 'bonjour le monde'
 ```
 
 See the [LLM embeddings documentation](https://llm.datasette.io/en/stable/embeddings/cli.html) for further details.

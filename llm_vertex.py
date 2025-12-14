@@ -1069,17 +1069,35 @@ class AsyncVertex(_SharedGemini, llm.AsyncModel):
 
 @llm.hookimpl
 def register_embedding_models(register):
-    register(GeminiEmbeddingModel("text-embedding-004", "text-embedding-004"))
-    # gemini-embedding-exp-03-07 in different truncation sizes
+    # New recommended model - gemini-embedding-001 (3072 dims, supports truncation)
+    # Google recommends 768, 1536, or 3072 dimensions for best quality
+    register(GeminiEmbeddingModel("vertex/gemini-embedding-001", "gemini-embedding-001"))
+    for i in (768, 1536):
+        register(
+            GeminiEmbeddingModel(
+                f"vertex/gemini-embedding-001-{i}", "gemini-embedding-001", i
+            ),
+        )
+
+    # Current stable models
+    register(GeminiEmbeddingModel("vertex/text-embedding-005", "text-embedding-005"))
+    register(GeminiEmbeddingModel("vertex/text-embedding-004", "text-embedding-004"))
     register(
         GeminiEmbeddingModel(
-            "gemini-embedding-exp-03-07", "gemini-embedding-exp-03-07"
+            "vertex/text-multilingual-embedding-002", "text-multilingual-embedding-002"
+        )
+    )
+
+    # Deprecated experimental model (October 2025 deprecation)
+    register(
+        GeminiEmbeddingModel(
+            "vertex/gemini-embedding-exp-03-07", "gemini-embedding-exp-03-07"
         ),
     )
     for i in (128, 256, 512, 1024, 2048):
         register(
             GeminiEmbeddingModel(
-                f"gemini-embedding-exp-03-07-{i}", f"gemini-embedding-exp-03-07", i
+                f"vertex/gemini-embedding-exp-03-07-{i}", "gemini-embedding-exp-03-07", i
             ),
         )
 
