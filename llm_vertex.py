@@ -1103,8 +1103,6 @@ def register_embedding_models(register):
 
 
 class VertexEmbeddingModel(llm.EmbeddingModel):
-    batch_size = 20
-
     # Vertex AI credentials (shared across instances)
     _credentials = None
 
@@ -1112,6 +1110,12 @@ class VertexEmbeddingModel(llm.EmbeddingModel):
         self.model_id = model_id
         self.gemini_model_id = gemini_model_id
         self.truncate = truncate
+        # gemini-embedding-001 only accepts 1 text per request on Vertex AI
+        # text-embedding-* models accept up to 5 texts per request
+        if gemini_model_id.startswith("gemini-embedding"):
+            self.batch_size = 1
+        else:
+            self.batch_size = 5
 
     def get_credentials_and_config(self):
         """Get Vertex AI credentials, project, and region."""
@@ -1166,18 +1170,17 @@ class VertexEmbeddingModel(llm.EmbeddingModel):
             token = get_access_token(credentials)
             headers["Authorization"] = f"Bearer {token}"
 
+        # Build Vertex AI request body format
         data = {
-            "requests": [
-                {
-                    "model": f"projects/{project_id}/locations/{region}/publishers/google/models/{self.gemini_model_id}",
-                    "content": {"parts": [{"text": item}]},
-                }
-                for item in items
-            ]
+            "instances": [{"content": item} for item in items],
+            "parameters": {"autoTruncate": True},
         }
+        # Use native outputDimensionality for truncation
+        if self.truncate:
+            data["parameters"]["outputDimensionality"] = self.truncate
 
-        # Build Vertex AI endpoint
-        url = build_vertex_endpoint(region, project_id, self.gemini_model_id, "batchEmbedContents")
+        # Build Vertex AI endpoint (uses :predict, not :batchEmbedContents)
+        url = build_vertex_endpoint(region, project_id, self.gemini_model_id, "predict")
 
         with httpx.Client() as client:
             response = client.post(
@@ -1188,9 +1191,8 @@ class VertexEmbeddingModel(llm.EmbeddingModel):
             )
 
         response.raise_for_status()
-        values = [item["values"] for item in response.json()["embeddings"]]
-        if self.truncate:
-            values = [value[: self.truncate] for value in values]
+        # Vertex AI response format: predictions[].embeddings.values
+        values = [item["embeddings"]["values"] for item in response.json()["predictions"]]
         return values
 
 
