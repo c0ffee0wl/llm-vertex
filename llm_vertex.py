@@ -961,12 +961,25 @@ class _SharedGemini:
         # We only use the first candidate
         for part in candidates[0]["content"]["parts"]:
             # Skip thinking traces - they have thought=true
+            # (extracted from final response in set_usage)
             if part.get("thought"):
                 continue
             yield self.process_part(part, response)
 
     def set_usage(self, response):
         try:
+            # Extract thinking traces from final response before cleanup
+            thinking_traces = []
+            for candidate in response.response_json.get("candidates", []):
+                for part in candidate.get("content", {}).get("parts", []):
+                    if part.get("thought"):
+                        trace = {"text": part.get("text", "")}
+                        if "thoughtSignature" in part:
+                            trace["thoughtSignature"] = part["thoughtSignature"]
+                        thinking_traces.append(trace)
+            if thinking_traces:
+                response.response_json["thinking_traces"] = thinking_traces
+
             # Don't record the "content" key from that last candidate
             for candidate in response.response_json["candidates"]:
                 candidate.pop("content", None)
@@ -987,7 +1000,7 @@ class _SharedGemini:
                 response.set_usage(
                     input=input_tokens, output=output_tokens, details=usage or None
                 )
-        except (IndexError, KeyError):
+        except (IndexError, KeyError, AttributeError, TypeError):
             pass
 
 
