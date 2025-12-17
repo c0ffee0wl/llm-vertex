@@ -135,8 +135,17 @@ All Gemini models are available through Vertex AI:
 - `vertex/gemini-3-pro-preview`: Gemini 3 Pro preview (global region only)
 - `vertex/gemini-3-pro-preview-11-2025`: Gemini 3 Pro November 2025 version (global region only)
 - `vertex/gemini-3-pro-preview-11-2025-thinking`: Gemini 3 Pro with thinking mode (global region only)
+- `vertex/gemini-3-flash-preview`: Gemini 3 Flash preview (global region only)
 
 **Note:** Gemini 3 models automatically use the global endpoint regardless of your configured region.
+
+**Thinking Levels:** Gemini 3 models support configurable thinking levels:
+- Flash (`gemini-3-flash-preview`): `minimal`, `low`, `medium`, `high`
+- Pro (`gemini-3-pro-preview`): `low`, `high`
+
+```bash
+llm -m vertex/gemini-3-flash-preview -o thinking_level high 'complex reasoning task'
+```
 
 ### Gemini 2.5 and earlier
 
@@ -233,27 +242,30 @@ The `gemini-2.5-pro` model is available in the following regions:
   - [Gemini 2.5 Pro Documentation](https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-pro)
   - [All Vertex AI Locations](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations)
 
-### Gemini 3 Pro (Preview)
+### Gemini 3 (Preview)
 
-The `gemini-3-pro-preview` and related Gemini 3 models (launched November 18, 2025) are currently **only available via the Global endpoint**.
+The Gemini 3 models (Pro launched November 18, 2025; Flash launched December 17, 2025) are currently **only available via the Global endpoint**.
 
-| Model ID | Availability | Auto-Region Override |
-|----------|--------------|---------------------|
-| gemini-3-pro-preview | Global only | Yes - automatically uses global endpoint |
-| gemini-3-pro-preview-11-2025 | Global only | Yes - automatically uses global endpoint |
-| gemini-3-pro-preview-11-2025-thinking | Global only | Yes - automatically uses global endpoint |
+| Model ID | Availability | Thinking Levels | Auto-Region Override |
+|----------|--------------|-----------------|---------------------|
+| gemini-3-pro-preview | Global only | low, high | Yes |
+| gemini-3-pro-preview-11-2025 | Global only | low, high | Yes |
+| gemini-3-pro-preview-11-2025-thinking | Global only | low, high | Yes |
+| gemini-3-flash-preview | Global only | minimal, low, medium, high | Yes |
 
 **Key Features:**
 - 1 million token context window
 - 64K token output limit
 - Multimodal support (text, images, audio, video)
 - Google Search grounding
-- Thinking budget parameter support
+- Configurable thinking levels (Flash has 4 levels, Pro has 2)
 - Knowledge cutoff: January 2025
 
 **Important:** These models automatically use the global endpoint regardless of your configured region setting. You don't need to change your `GOOGLE_CLOUD_REGION` configuration - the plugin handles this automatically.
 
-For more information, see the [Gemini 3 Pro Documentation](https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-pro).
+For more information, see:
+- [Gemini 3 Pro Documentation](https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-pro)
+- [Gemini 3 Flash Documentation](https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-flash)
 
 ### Images, audio and video
 

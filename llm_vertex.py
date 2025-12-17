@@ -10,7 +10,7 @@ from enum import Enum
 from google.auth import default
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
-from pydantic import Field
+from pydantic import Field, create_model
 from typing import Optional
 
 SAFETY_SETTINGS = [
@@ -59,6 +59,7 @@ GOOGLE_SEARCH_MODELS = {
     "gemini-3-pro-preview",
     "gemini-3-pro-preview-11-2025",
     "gemini-3-pro-preview-11-2025-thinking",
+    "gemini-3-flash-preview",
 }
 
 # Older Google models used google_search_retrieval instead of google_search
@@ -90,13 +91,22 @@ THINKING_BUDGET_MODELS = {
     "gemini-2.5-flash-lite-preview-09-2025",
 }
 
-THINKING_LEVEL_MODELS = {
-    "gemini-3-pro-preview",
-    "gemini-3-pro-preview-11-2025",
-    "gemini-3-pro-preview-11-2025-thinking",
+MODEL_THINKING_LEVELS = {
+    "gemini-3-pro-preview": ["low", "high"],
+    "gemini-3-pro-preview-11-2025": ["low", "high"],
+    "gemini-3-pro-preview-11-2025-thinking": ["low", "high"],
+    "gemini-3-flash-preview": ["minimal", "low", "medium", "high"],
 }
 
 NO_VISION_MODELS = {"gemma-3-1b-it", "gemma-3n-e4b-it"}
+
+NO_MEDIA_RESOLUTION_MODELS = {
+    "gemma-3-1b-it",
+    "gemma-3-4b-it",
+    "gemma-3-12b-it",
+    "gemma-3-27b-it",
+    "gemma-3n-e4b-it",
+}
 
 # Valid Vertex AI regions as of 2025
 # See https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations
@@ -144,6 +154,7 @@ MODEL_REGION_REQUIREMENTS = {
     "gemini-3-pro-preview": "global",
     "gemini-3-pro-preview-11-2025": "global",
     "gemini-3-pro-preview-11-2025-thinking": "global",
+    "gemini-3-flash-preview": "global",
 }
 
 ATTACHMENT_TYPES = {
@@ -440,28 +451,33 @@ def register_models(register):
         "gemini-3-pro-preview",
         "gemini-3-pro-preview-11-2025",
         "gemini-3-pro-preview-11-2025-thinking",
+        # 17th December 2025:
+        "gemini-3-flash-preview",
     ):
         can_google_search = model_id in GOOGLE_SEARCH_MODELS
         can_thinking_budget = model_id in THINKING_BUDGET_MODELS
-        can_thinking_level = model_id in THINKING_LEVEL_MODELS
+        thinking_levels = MODEL_THINKING_LEVELS.get(model_id)
         can_vision = model_id not in NO_VISION_MODELS
         can_schema = "flash-thinking" not in model_id and "gemma-3" not in model_id
+        can_media_resolution = model_id not in NO_MEDIA_RESOLUTION_MODELS
         register(
             Vertex(
                 model_id,
                 can_vision=can_vision,
                 can_google_search=can_google_search,
                 can_thinking_budget=can_thinking_budget,
-                can_thinking_level=can_thinking_level,
+                thinking_levels=thinking_levels,
                 can_schema=can_schema,
+                can_media_resolution=can_media_resolution,
             ),
             AsyncVertex(
                 model_id,
                 can_vision=can_vision,
                 can_google_search=can_google_search,
                 can_thinking_budget=can_thinking_budget,
-                can_thinking_level=can_thinking_level,
+                thinking_levels=thinking_levels,
                 can_schema=can_schema,
+                can_media_resolution=can_media_resolution,
             ),
         )
 
@@ -575,13 +591,6 @@ class MediaResolution(str, Enum):
     UNSPECIFIED = "unspecified"
 
 
-class ThinkingLevel(str, Enum):
-    """Allowed thinking levels for Gemini models."""
-
-    LOW = "low"
-    HIGH = "high"
-
-
 class _SharedGemini:
     can_stream = True
     supports_schema = True
@@ -653,31 +662,6 @@ class _SharedGemini:
             ),
             default=None,
         )
-        media_resolution: Optional[MediaResolution] = Field(
-            description=(
-                "Media resolution for the input media (esp. YouTube) "
-                "- default is low, other values are medium, high, or unspecified"
-            ),
-            default=MediaResolution.LOW,
-        )
-
-    class OptionsWithGoogleSearch(Options):
-        google_search: Optional[bool] = Field(
-            description="Enables the model to use Google Search to improve the accuracy and recency of responses from the model",
-            default=None,
-        )
-
-    class OptionsWithThinkingBudget(OptionsWithGoogleSearch):
-        thinking_budget: Optional[int] = Field(
-            description="Indicates the thinking budget in tokens. Set to 0 to disable.",
-            default=None,
-        )
-
-    class OptionsWithThinkingLevel(OptionsWithGoogleSearch):
-        thinking_level: Optional[ThinkingLevel] = Field(
-            description="Indicates the thinking level. Can be 'low' or 'high'.",
-            default=None,
-        )
 
     def __init__(
         self,
@@ -685,23 +669,75 @@ class _SharedGemini:
         can_vision=True,
         can_google_search=False,
         can_thinking_budget=False,
-        can_thinking_level=False,
+        thinking_levels=None,
         can_schema=False,
+        can_media_resolution=True,
     ):
         self.model_id = "vertex/{}".format(gemini_model_id)
         self.gemini_model_id = gemini_model_id
         self.can_google_search = can_google_search
         self.supports_schema = can_schema
-        if can_google_search:
-            self.Options = self.OptionsWithGoogleSearch
         self.can_thinking_budget = can_thinking_budget
-        if can_thinking_budget:
-            self.Options = self.OptionsWithThinkingBudget
-        self.can_thinking_level = can_thinking_level
-        if can_thinking_level:
-            self.Options = self.OptionsWithThinkingLevel
+        self.thinking_levels = thinking_levels
+        self.can_media_resolution = can_media_resolution
         if can_vision:
             self.attachment_types = ATTACHMENT_TYPES
+
+        # Build Options class dynamically based on model capabilities
+        extra_fields = {}
+
+        if can_media_resolution:
+            extra_fields["media_resolution"] = (
+                Optional[MediaResolution],
+                Field(
+                    description=(
+                        "Media resolution for the input media (esp. YouTube) "
+                        "- default is low, other values are medium, high, or unspecified"
+                    ),
+                    default=MediaResolution.LOW,
+                ),
+            )
+
+        if can_google_search:
+            extra_fields["google_search"] = (
+                Optional[bool],
+                Field(
+                    description="Enables the model to use Google Search to improve the accuracy and recency of responses from the model",
+                    default=None,
+                ),
+            )
+
+        if can_thinking_budget:
+            extra_fields["thinking_budget"] = (
+                Optional[int],
+                Field(
+                    description="Indicates the thinking budget in tokens. Set to 0 to disable.",
+                    default=None,
+                ),
+            )
+
+        if thinking_levels:
+            # Create dynamic enum with the supported levels for this model
+            ThinkingLevelEnum = Enum(
+                "ThinkingLevel",
+                {level.upper(): level for level in thinking_levels},
+                type=str,
+            )
+            extra_fields["thinking_level"] = (
+                Optional[ThinkingLevelEnum],
+                Field(
+                    description=f"Indicates the thinking level. Can be one of: {', '.join(thinking_levels)}.",
+                    default=None,
+                ),
+            )
+
+        if extra_fields:
+            self.Options = create_model(
+                "Options",
+                __base__=self.Options,
+                **extra_fields,
+            )
+        # else: use the base Options class as-is
 
     def get_credentials_and_config(self):
         """
@@ -905,9 +941,12 @@ class _SharedGemini:
                 "thinkingBudget": prompt.options.thinking_budget
             }
 
-        if self.can_thinking_level and prompt.options.thinking_level is not None:
+        thinking_level = getattr(prompt.options, "thinking_level", None)
+        if self.thinking_levels and thinking_level is not None:
+            # Extract the enum value (e.g., "low", "high", "minimal", "medium")
+            level_value = thinking_level.value if hasattr(thinking_level, "value") else thinking_level
             generation_config["thinkingConfig"] = {
-                "thinkingLevel": prompt.options.thinking_level
+                "thinkingLevel": level_value
             }
 
         config_map = {
@@ -920,13 +959,16 @@ class _SharedGemini:
             generation_config["responseMimeType"] = "application/json"
 
         # Add media_resolution if specified, or default to LOW for YouTube URLs
-        if prompt.options and prompt.options.media_resolution:
-            generation_config["mediaResolution"] = (
-                f"MEDIA_RESOLUTION_{prompt.options.media_resolution.value.upper()}"
-            )
-        elif has_youtube:
-            # Default to low resolution for YouTube videos to support longer videos
-            generation_config["mediaResolution"] = "MEDIA_RESOLUTION_LOW"
+        # (only for models that support it)
+        if self.can_media_resolution:
+            media_resolution = getattr(prompt.options, "media_resolution", None)
+            if media_resolution:
+                generation_config["mediaResolution"] = (
+                    f"MEDIA_RESOLUTION_{media_resolution.value.upper()}"
+                )
+            elif has_youtube:
+                # Default to low resolution for YouTube videos to support longer videos
+                generation_config["mediaResolution"] = "MEDIA_RESOLUTION_LOW"
 
         if any(
             getattr(prompt.options, key, None) is not None for key in config_map.keys()
