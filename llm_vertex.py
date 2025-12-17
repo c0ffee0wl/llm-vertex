@@ -836,6 +836,10 @@ class _SharedGemini:
                     )
                 messages.append({"role": "user", "parts": parts})
                 model_parts = []
+                # Include preserved thinking traces first for multi-turn context
+                stored_traces = response.response_json.get("thinking_traces")
+                if stored_traces:
+                    model_parts.extend(stored_traces)
                 response_text = response.text_or_raise()
                 model_parts.append({"text": response_text})
                 tool_calls = response.tool_calls_or_raise()
@@ -1016,15 +1020,24 @@ class _SharedGemini:
 
     def set_usage(self, response):
         try:
-            # Extract function call parts with thoughtSignature for multi-turn
+            # Extract thinking traces and function call parts for multi-turn
+            thinking_traces = []
             function_call_parts = []
             for candidate in response.response_json.get("candidates", []):
                 for part in candidate.get("content", {}).get("parts", []):
+                    if part.get("thought"):
+                        # Preserve thinking parts for multi-turn context
+                        trace = {"thought": True, "text": part.get("text", "")}
+                        if "thoughtSignature" in part:
+                            trace["thoughtSignature"] = part["thoughtSignature"]
+                        thinking_traces.append(trace)
                     if "functionCall" in part:
                         fc_part = {"functionCall": part["functionCall"]}
                         if "thoughtSignature" in part:
                             fc_part["thoughtSignature"] = part["thoughtSignature"]
                         function_call_parts.append(fc_part)
+            if thinking_traces:
+                response.response_json["thinking_traces"] = thinking_traces
             if function_call_parts:
                 response.response_json["function_call_parts"] = function_call_parts
 
