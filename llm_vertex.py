@@ -1016,24 +1016,15 @@ class _SharedGemini:
 
     def set_usage(self, response):
         try:
-            # Extract thinking traces and function call parts before cleanup
-            thinking_traces = []
+            # Extract function call parts with thoughtSignature for multi-turn
             function_call_parts = []
             for candidate in response.response_json.get("candidates", []):
                 for part in candidate.get("content", {}).get("parts", []):
-                    if part.get("thought"):
-                        trace = {"text": part.get("text", "")}
-                        if "thoughtSignature" in part:
-                            trace["thoughtSignature"] = part["thoughtSignature"]
-                        thinking_traces.append(trace)
-                    # Preserve function call parts with thoughtSignature for multi-turn
                     if "functionCall" in part:
                         fc_part = {"functionCall": part["functionCall"]}
                         if "thoughtSignature" in part:
                             fc_part["thoughtSignature"] = part["thoughtSignature"]
                         function_call_parts.append(fc_part)
-            if thinking_traces:
-                response.response_json["thinking_traces"] = thinking_traces
             if function_call_parts:
                 response.response_json["function_call_parts"] = function_call_parts
 
