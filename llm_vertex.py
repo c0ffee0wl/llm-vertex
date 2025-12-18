@@ -835,32 +835,36 @@ class _SharedGemini:
                         ]
                     )
                 messages.append({"role": "user", "parts": parts})
-                model_parts = []
-                # Include preserved thinking traces first for multi-turn context
-                stored_traces = response.response_json.get("thinking_traces")
-                if stored_traces:
-                    model_parts.extend(stored_traces)
-                response_text = response.text_or_raise()
-                model_parts.append({"text": response_text})
-                tool_calls = response.tool_calls_or_raise()
-                if tool_calls:
-                    # Use preserved function_call_parts with thoughtSignature if available
-                    stored_fc_parts = response.response_json.get("function_call_parts")
-                    if stored_fc_parts:
-                        model_parts.extend(stored_fc_parts)
-                    else:
-                        # Fallback: reconstruct without signature (for older responses)
-                        model_parts.extend(
-                            [
-                                {
-                                    "functionCall": {
-                                        "name": tool_call.name,
-                                        "args": tool_call.arguments,
+                # Use original model parts if available (exact preservation)
+                original_parts = response.response_json.get("original_model_parts")
+                if original_parts:
+                    # Pass back exactly as received from API
+                    model_parts = list(original_parts)
+                else:
+                    # Fallback: reconstruct for older responses without original_model_parts
+                    model_parts = []
+                    stored_traces = response.response_json.get("thinking_traces")
+                    if stored_traces:
+                        model_parts.extend(stored_traces)
+                    response_text = response.text_or_raise()
+                    model_parts.append({"text": response_text})
+                    tool_calls = response.tool_calls_or_raise()
+                    if tool_calls:
+                        stored_fc_parts = response.response_json.get("function_call_parts")
+                        if stored_fc_parts:
+                            model_parts.extend(stored_fc_parts)
+                        else:
+                            model_parts.extend(
+                                [
+                                    {
+                                        "functionCall": {
+                                            "name": tool_call.name,
+                                            "args": tool_call.arguments,
+                                        }
                                     }
-                                }
-                                for tool_call in tool_calls
-                            ]
-                        )
+                                    for tool_call in tool_calls
+                                ]
+                            )
                 messages.append({"role": "model", "parts": model_parts})
 
         parts = []
@@ -1016,6 +1020,14 @@ class _SharedGemini:
 
     def set_usage(self, response):
         try:
+            # Store original model parts for exact restoration in multi-turn
+            # (must be done before content is removed below)
+            for candidate in response.response_json.get("candidates", []):
+                content = candidate.get("content", {})
+                if content.get("parts"):
+                    response.response_json["original_model_parts"] = content["parts"]
+                    break  # Only need first candidate
+
             # Extract thinking traces and function call parts for multi-turn
             thinking_traces = []
             function_call_parts = []
