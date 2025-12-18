@@ -694,7 +694,7 @@ class _SharedGemini:
                         "Media resolution for the input media (esp. YouTube) "
                         "- default is low, other values are medium, high, or unspecified"
                     ),
-                    default=MediaResolution.LOW,
+                    default=None,
                 ),
             )
 
@@ -968,17 +968,13 @@ class _SharedGemini:
         if prompt.options and prompt.options.json_object:
             generation_config["responseMimeType"] = "application/json"
 
-        # Add media_resolution if specified, or default to LOW for YouTube URLs
-        # (only for models that support it)
+        # Add media_resolution if specified (only for models that support it)
         if self.can_media_resolution:
             media_resolution = getattr(prompt.options, "media_resolution", None)
-            if media_resolution:
+            if media_resolution is not None:
                 generation_config["mediaResolution"] = (
                     f"MEDIA_RESOLUTION_{media_resolution.value.upper()}"
                 )
-            elif has_youtube:
-                # Default to low resolution for YouTube videos to support longer videos
-                generation_config["mediaResolution"] = "MEDIA_RESOLUTION_LOW"
 
         if any(
             getattr(prompt.options, key, None) is not None for key in config_map.keys()
