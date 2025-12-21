@@ -1022,10 +1022,11 @@ class _SharedGemini:
         try:
             # Store original model parts for exact restoration in multi-turn
             # (must be done before content is removed below)
+            # CRITICAL: Use deep copy to preserve thoughtSignature for Gemini 3 models
             for candidate in response.response_json.get("candidates", []):
                 content = candidate.get("content", {})
                 if content.get("parts"):
-                    response.response_json["original_model_parts"] = content["parts"]
+                    response.response_json["original_model_parts"] = copy.deepcopy(content["parts"])
                     break  # Only need first candidate
 
             # Extract thinking traces and function call parts for multi-turn
@@ -1040,7 +1041,8 @@ class _SharedGemini:
                             trace["thoughtSignature"] = part["thoughtSignature"]
                         thinking_traces.append(trace)
                     if "functionCall" in part:
-                        fc_part = {"functionCall": part["functionCall"]}
+                        # Deep copy to preserve data even if original is modified
+                        fc_part = {"functionCall": copy.deepcopy(part["functionCall"])}
                         if "thoughtSignature" in part:
                             fc_part["thoughtSignature"] = part["thoughtSignature"]
                         function_call_parts.append(fc_part)
