@@ -754,3 +754,195 @@ def test_youtube_url_detection():
     assert not is_youtube_url("https://www.google.com")
     assert not is_youtube_url("")
     assert not is_youtube_url(None)
+
+
+class TestMergeStreamingParts:
+    """Tests for _SharedGemini._merge_streaming_parts()."""
+
+    def test_thinking_text_merged_with_thought_signature_and_function_call(self):
+        """Thinking text deltas merged with thoughtSignature preserved, functionCall kept intact."""
+        from llm_vertex import _SharedGemini
+
+        gathered = [
+            {
+                "candidates": [{
+                    "content": {
+                        "parts": [
+                            {"thought": True, "text": "Let me think"},
+                            {"thought": True, "text": " about this", "thoughtSignature": "sig-abc"},
+                        ]
+                    }
+                }]
+            },
+            {
+                "candidates": [{
+                    "content": {
+                        "parts": [
+                            {
+                                "functionCall": {"name": "load_github", "args": {"url": "http://example.com"}},
+                                "thoughtSignature": "sig-fc-123",
+                            }
+                        ]
+                    }
+                }]
+            },
+        ]
+        result = _SharedGemini._merge_streaming_parts(gathered)
+        assert len(result) == 2
+        # Thinking parts merged
+        assert result[0]["thought"] is True
+        assert result[0]["text"] == "Let me think about this"
+        assert result[0]["thoughtSignature"] == "sig-abc"
+        # functionCall kept intact with its thoughtSignature
+        assert result[1]["functionCall"]["name"] == "load_github"
+        assert result[1]["thoughtSignature"] == "sig-fc-123"
+
+    def test_regular_text_merged_and_function_call_signature_preserved(self):
+        """Regular text deltas merged, functionCall with thoughtSignature kept."""
+        from llm_vertex import _SharedGemini
+
+        gathered = [
+            {
+                "candidates": [{
+                    "content": {
+                        "parts": [
+                            {"text": "Hello"},
+                        ]
+                    }
+                }]
+            },
+            {
+                "candidates": [{
+                    "content": {
+                        "parts": [
+                            {"text": " world"},
+                        ]
+                    }
+                }]
+            },
+            {
+                "candidates": [{
+                    "content": {
+                        "parts": [
+                            {
+                                "functionCall": {"name": "do_stuff", "args": {}},
+                                "thoughtSignature": "sig-xyz",
+                            }
+                        ]
+                    }
+                }]
+            },
+        ]
+        result = _SharedGemini._merge_streaming_parts(gathered)
+        assert len(result) == 2
+        assert result[0]["text"] == "Hello world"
+        assert "thought" not in result[0]
+        assert result[1]["functionCall"]["name"] == "do_stuff"
+        assert result[1]["thoughtSignature"] == "sig-xyz"
+
+    def test_last_event_no_candidates_parts_still_captured(self):
+        """Last event has only usageMetadata (no candidates) -- parts from earlier events still captured."""
+        from llm_vertex import _SharedGemini
+
+        gathered = [
+            {
+                "candidates": [{
+                    "content": {
+                        "parts": [
+                            {"thought": True, "text": "thinking..."},
+                        ]
+                    }
+                }]
+            },
+            {
+                "candidates": [{
+                    "content": {
+                        "parts": [
+                            {"thought": True, "text": " done", "thoughtSignature": "sig-final"},
+                        ]
+                    }
+                }]
+            },
+            {
+                "candidates": [{
+                    "content": {
+                        "parts": [
+                            {
+                                "functionCall": {"name": "my_tool", "args": {"x": 1}},
+                                "thoughtSignature": "sig-tool",
+                            }
+                        ]
+                    }
+                }]
+            },
+            # Final event: only usageMetadata, no candidates
+            {
+                "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 20},
+                "modelVersion": "gemini-3-flash-preview",
+            },
+        ]
+        result = _SharedGemini._merge_streaming_parts(gathered)
+        assert len(result) == 2
+        assert result[0]["thought"] is True
+        assert result[0]["text"] == "thinking... done"
+        assert result[0]["thoughtSignature"] == "sig-final"
+        assert result[1]["functionCall"]["name"] == "my_tool"
+        assert result[1]["thoughtSignature"] == "sig-tool"
+
+    def test_no_merging_across_thought_boundary(self):
+        """Text parts with different thought status are not merged."""
+        from llm_vertex import _SharedGemini
+
+        gathered = [
+            {
+                "candidates": [{
+                    "content": {
+                        "parts": [
+                            {"thought": True, "text": "thinking part"},
+                        ]
+                    }
+                }]
+            },
+            {
+                "candidates": [{
+                    "content": {
+                        "parts": [
+                            {"text": "regular text"},
+                        ]
+                    }
+                }]
+            },
+        ]
+        result = _SharedGemini._merge_streaming_parts(gathered)
+        assert len(result) == 2
+        assert result[0]["thought"] is True
+        assert result[0]["text"] == "thinking part"
+        assert result[1]["text"] == "regular text"
+        assert "thought" not in result[1]
+
+    def test_empty_gathered(self):
+        """Empty gathered list returns empty parts."""
+        from llm_vertex import _SharedGemini
+
+        result = _SharedGemini._merge_streaming_parts([])
+        assert result == []
+
+    def test_deep_copy_preserves_isolation(self):
+        """Modifying the result does not affect the original gathered data."""
+        from llm_vertex import _SharedGemini
+
+        gathered = [
+            {
+                "candidates": [{
+                    "content": {
+                        "parts": [
+                            {"functionCall": {"name": "test", "args": {"key": "value"}}, "thoughtSignature": "sig-1"}
+                        ]
+                    }
+                }]
+            }
+        ]
+        result = _SharedGemini._merge_streaming_parts(gathered)
+        result[0]["functionCall"]["name"] = "modified"
+        # Original should be untouched
+        assert gathered[0]["candidates"][0]["content"]["parts"][0]["functionCall"]["name"] == "test"

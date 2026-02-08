@@ -1018,34 +1018,71 @@ class _SharedGemini:
                 continue
             yield self.process_part(part, response)
 
-    def set_usage(self, response):
+    @staticmethod
+    def _merge_streaming_parts(gathered):
+        """Collect all parts from streaming events and merge consecutive text parts.
+
+        During streaming, functionCall parts with thoughtSignature arrive in
+        earlier events and are absent from the final event (which typically
+        contains only usageMetadata).  This helper accumulates every part from
+        every event's first candidate, merging consecutive text chunks that
+        share the same ``thought`` status into a single text part while
+        preserving ``thoughtSignature`` from the last chunk.  Non-text parts
+        (functionCall, executableCode, etc.) are kept exactly as-is.
+        """
+        merged = []
+        for event in gathered:
+            candidates = event.get("candidates", [])
+            if not candidates:
+                continue
+            parts = candidates[0].get("content", {}).get("parts", [])
+            for part in parts:
+                is_text = "text" in part and "functionCall" not in part and "executableCode" not in part and "codeExecutionResult" not in part
+                if is_text and merged:
+                    prev = merged[-1]
+                    prev_is_text = "text" in prev and "functionCall" not in prev and "executableCode" not in prev and "codeExecutionResult" not in prev
+                    if prev_is_text and prev.get("thought") == part.get("thought"):
+                        # Merge consecutive text parts with same thought status
+                        prev["text"] = prev.get("text", "") + part.get("text", "")
+                        # Keep thoughtSignature from the latest chunk
+                        if "thoughtSignature" in part:
+                            prev["thoughtSignature"] = part["thoughtSignature"]
+                        continue
+                merged.append(copy.deepcopy(part))
+        return merged
+
+    def set_usage(self, response, gathered=None):
         try:
-            # Store original model parts for exact restoration in multi-turn
-            # (must be done before content is removed below)
-            # CRITICAL: Use deep copy to preserve thoughtSignature for Gemini 3 models
-            for candidate in response.response_json.get("candidates", []):
-                content = candidate.get("content", {})
-                if content.get("parts"):
-                    response.response_json["original_model_parts"] = copy.deepcopy(content["parts"])
-                    break  # Only need first candidate
+            if gathered is not None:
+                # Streaming: merge parts from all events to capture
+                # thoughtSignature fields that only appear in earlier events
+                all_parts = self._merge_streaming_parts(gathered)
+            else:
+                # Non-streaming fallback: read from the single response
+                all_parts = None
+                for candidate in response.response_json.get("candidates", []):
+                    content = candidate.get("content", {})
+                    if content.get("parts"):
+                        all_parts = copy.deepcopy(content["parts"])
+                        break
+
+            if all_parts:
+                response.response_json["original_model_parts"] = all_parts
 
             # Extract thinking traces and function call parts for multi-turn
             thinking_traces = []
             function_call_parts = []
-            for candidate in response.response_json.get("candidates", []):
-                for part in candidate.get("content", {}).get("parts", []):
-                    if part.get("thought"):
-                        # Preserve thinking parts for multi-turn context
-                        trace = {"thought": True, "text": part.get("text", "")}
-                        if "thoughtSignature" in part:
-                            trace["thoughtSignature"] = part["thoughtSignature"]
-                        thinking_traces.append(trace)
-                    if "functionCall" in part:
-                        # Deep copy to preserve data even if original is modified
-                        fc_part = {"functionCall": copy.deepcopy(part["functionCall"])}
-                        if "thoughtSignature" in part:
-                            fc_part["thoughtSignature"] = part["thoughtSignature"]
-                        function_call_parts.append(fc_part)
+            for part in (all_parts or []):
+                if part.get("thought"):
+                    trace = {"thought": True, "text": part.get("text", "")}
+                    if "thoughtSignature" in part:
+                        trace["thoughtSignature"] = part["thoughtSignature"]
+                    thinking_traces.append(trace)
+                if "functionCall" in part:
+                    fc_part = {"functionCall": copy.deepcopy(part["functionCall"])}
+                    if "thoughtSignature" in part:
+                        fc_part["thoughtSignature"] = part["thoughtSignature"]
+                    function_call_parts.append(fc_part)
             if thinking_traces:
                 response.response_json["thinking_traces"] = thinking_traces
             if function_call_parts:
@@ -1109,7 +1146,7 @@ class Vertex(_SharedGemini, llm.Model):
         response.response_json = gathered[-1]
         resolved_model = gathered[-1]["modelVersion"]
         response.set_resolved_model(resolved_model)
-        self.set_usage(response)
+        self.set_usage(response, gathered)
 
 
 class AsyncVertex(_SharedGemini, llm.AsyncModel):
@@ -1148,7 +1185,7 @@ class AsyncVertex(_SharedGemini, llm.AsyncModel):
         response.response_json = gathered[-1]
         resolved_model = gathered[-1]["modelVersion"]
         response.set_resolved_model(resolved_model)
-        self.set_usage(response)
+        self.set_usage(response, gathered)
 
 
 @llm.hookimpl
