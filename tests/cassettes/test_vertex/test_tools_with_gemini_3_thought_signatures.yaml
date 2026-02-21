@@ -1,0 +1,111 @@
+interactions:
+- request:
+    body: '{"contents": [{"role": "user", "parts": [{"text": "What is 7 * 3?"}]}],
+      "safetySettings": [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold":
+      "BLOCK_NONE"}, {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold":
+      "BLOCK_NONE"}, {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+      {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}], "tools":
+      [{"functionDeclarations": [{"name": "multiply", "description": "Multiply two
+      integers", "parameters": {"properties": {"a": {"type": "integer"}, "b": {"type":
+      "integer"}}, "required": ["a", "b"], "type": "object"}}]}]}'
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      content-length:
+      - '600'
+      content-type:
+      - application/json
+      host:
+      - aiplatform.googleapis.com
+      user-agent:
+      - python-httpx/0.28.1
+    method: POST
+    uri: https://aiplatform.googleapis.com/v1/projects/test-project/locations/global/publishers/google/models/gemini-3-flash-preview:streamGenerateContent
+  response:
+    body:
+      string: '[{"candidates":[{"content":{"parts":[{"thought":true,"text":"I need
+        to multiply 7 by 3."}],"role":"model"}}]},{"candidates":[{"content":{"parts":[{"thought":true,"text":"
+        Let me use the multiply tool.","thoughtSignature":"dGhpbmtpbmdfc2lnXzE="}],"role":"model"}}]},{"candidates":[{"content":{"parts":[{"functionCall":{"name":"multiply","args":{"a":7,"b":3}},"thoughtSignature":"ZnVuY3Rpb25fY2FsbF9zaWc="}],"role":"model"},"finishReason":"STOP","safetyRatings":[{"category":"HARM_CATEGORY_HATE_SPEECH","probability":"NEGLIGIBLE"},{"category":"HARM_CATEGORY_DANGEROUS_CONTENT","probability":"NEGLIGIBLE"},{"category":"HARM_CATEGORY_HARASSMENT","probability":"NEGLIGIBLE"},{"category":"HARM_CATEGORY_SEXUALLY_EXPLICIT","probability":"NEGLIGIBLE"}]}],"usageMetadata":{"promptTokenCount":25,"candidatesTokenCount":5,"thoughtsTokenCount":15},"modelVersion":"gemini-3-flash-preview"}]'
+    headers:
+      Content-Type:
+      - application/json; charset=UTF-8
+      Date:
+      - Wed, 19 Feb 2026 10:00:00 GMT
+      Server:
+      - scaffolding on HTTPServer2
+      Transfer-Encoding:
+      - chunked
+      Vary:
+      - Origin
+      - X-Origin
+      - Referer
+      X-Content-Type-Options:
+      - nosniff
+      X-Frame-Options:
+      - SAMEORIGIN
+      X-XSS-Protection:
+      - '0'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"contents": [{"role": "user", "parts": [{"text": "What is 7 * 3?"}]},
+      {"role": "model", "parts": [{"thought": true, "text": "I need to multiply 7
+      by 3. Let me use the multiply tool.", "thoughtSignature": "dGhpbmtpbmdfc2lnXzE="},
+      {"functionCall": {"name": "multiply", "args": {"a": 7, "b": 3}}, "thoughtSignature":
+      "ZnVuY3Rpb25fY2FsbF9zaWc="}]}, {"role": "user", "parts": [{"function_response":
+      {"name": "multiply", "response": {"output": "21"}}}]}], "safetySettings":
+      [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+      {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+      {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"}, {"category":
+      "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}], "tools": [{"functionDeclarations":
+      [{"name": "multiply", "description": "Multiply two integers", "parameters":
+      {"properties": {"a": {"type": "integer"}, "b": {"type": "integer"}}, "required":
+      ["a", "b"], "type": "object"}}]}]}'
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      content-length:
+      - '950'
+      content-type:
+      - application/json
+      host:
+      - aiplatform.googleapis.com
+      user-agent:
+      - python-httpx/0.28.1
+    method: POST
+    uri: https://aiplatform.googleapis.com/v1/projects/test-project/locations/global/publishers/google/models/gemini-3-flash-preview:streamGenerateContent
+  response:
+    body:
+      string: '[{"candidates":[{"content":{"parts":[{"text":"7 * 3 is 21.\n"}],"role":"model"},"finishReason":"STOP","safetyRatings":[{"category":"HARM_CATEGORY_HATE_SPEECH","probability":"NEGLIGIBLE"},{"category":"HARM_CATEGORY_DANGEROUS_CONTENT","probability":"NEGLIGIBLE"},{"category":"HARM_CATEGORY_HARASSMENT","probability":"NEGLIGIBLE"},{"category":"HARM_CATEGORY_SEXUALLY_EXPLICIT","probability":"NEGLIGIBLE"}]}],"usageMetadata":{"promptTokenCount":50,"candidatesTokenCount":10},"modelVersion":"gemini-3-flash-preview"}]'
+    headers:
+      Content-Type:
+      - application/json; charset=UTF-8
+      Date:
+      - Wed, 19 Feb 2026 10:00:01 GMT
+      Server:
+      - scaffolding on HTTPServer2
+      Transfer-Encoding:
+      - chunked
+      Vary:
+      - Origin
+      - X-Origin
+      - Referer
+      X-Content-Type-Options:
+      - nosniff
+      X-Frame-Options:
+      - SAMEORIGIN
+      X-XSS-Protection:
+      - '0'
+    status:
+      code: 200
+      message: OK
+version: 1

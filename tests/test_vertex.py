@@ -643,6 +643,62 @@ def test_tools_with_nested_pydantic_models():
     assert tool_calls[0].name == "create_person"
 
 
+@pytest.mark.vcr
+def test_tools_with_gemini_3_thought_signatures(monkeypatch):
+    """Test that tool calls with Gemini 3 thought signatures are preserved.
+
+    Gemini 3 models include thoughtSignature fields on functionCall parts during
+    streaming. This test verifies that:
+    1. The tool call is executed correctly
+    2. function_call_parts with thoughtSignature are stored in response_json
+    3. original_model_parts are stored for exact API response preservation
+    """
+    monkeypatch.setenv("GOOGLE_CLOUD_API_KEY", "test-api-key")
+
+    def multiply(a: int, b: int):
+        """Multiply two integers"""
+        return str(a * b)
+
+    model = llm.get_model("vertex/gemini-3-flash-preview")
+    chain_response = model.chain(
+        "What is 7 * 3?",
+        tools=[llm.Tool.function(multiply, name="multiply")],
+    )
+    text = chain_response.text()
+    assert text == "7 * 3 is 21.\n"
+
+    # Should have 2 responses: tool call + final answer
+    assert len(chain_response._responses) == 2
+    first, second = chain_response._responses
+
+    # First response should have a tool call
+    assert len(first.tool_calls()) == 1
+    assert first.tool_calls()[0].name == "multiply"
+    assert first.tool_calls()[0].arguments == {"a": 7, "b": 3}
+
+    # Second response should have the tool result
+    assert second.prompt.tool_results[0].output == "21"
+
+    # Verify function_call_parts with thoughtSignature are preserved
+    fc_parts = first.response_json.get("function_call_parts")
+    assert fc_parts is not None
+    assert len(fc_parts) == 1
+    assert fc_parts[0]["functionCall"]["name"] == "multiply"
+    assert "thoughtSignature" in fc_parts[0]
+
+    # Verify original_model_parts are stored
+    original_parts = first.response_json.get("original_model_parts")
+    assert original_parts is not None
+    assert len(original_parts) >= 2  # thinking trace + functionCall
+    # Check thinking trace
+    thinking_parts = [p for p in original_parts if p.get("thought")]
+    assert len(thinking_parts) >= 1
+    # Check functionCall part
+    fc_original = [p for p in original_parts if "functionCall" in p]
+    assert len(fc_original) == 1
+    assert "thoughtSignature" in fc_original[0]
+
+
 def test_recursive_schema_detection_direct():
     """Test that direct recursion is detected and raises an error."""
     # Direct recursion: Node has a next field that references Node

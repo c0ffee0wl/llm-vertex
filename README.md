@@ -147,6 +147,19 @@ All Gemini models are available through Vertex AI:
 llm -m vertex/gemini-3-flash-preview -o thinking_level high 'complex reasoning task'
 ```
 
+### Gemini 3.1 (Latest - Preview)
+
+- `vertex/gemini-3.1-pro-preview`: Gemini 3.1 Pro preview (global region only)
+- `vertex/gemini-3.1-pro-preview-customtools`: Gemini 3.1 Pro with custom tools support (global region only)
+
+**Thinking Levels:** Gemini 3.1 Pro models support configurable thinking levels: `low`, `medium`, `high`
+
+```bash
+llm -m vertex/gemini-3.1-pro-preview -o thinking_level high 'complex reasoning task'
+```
+
+**Note:** Gemini 3.1 models automatically use the global endpoint regardless of your configured region.
+
 ### Gemini 2.5 and earlier
 
 - `vertex/gemini-2.5-flash-lite-preview-09-2025`
@@ -252,6 +265,8 @@ The Gemini 3 models (Pro launched November 18, 2025; Flash launched December 17,
 | gemini-3-pro-preview-11-2025 | Global only | low, high | Yes |
 | gemini-3-pro-preview-11-2025-thinking | Global only | low, high | Yes |
 | gemini-3-flash-preview | Global only | minimal, low, medium, high | Yes |
+| gemini-3.1-pro-preview | Global only | low, medium, high | Yes |
+| gemini-3.1-pro-preview-customtools | Global only | low, medium, high | Yes |
 
 **Key Features:**
 - 1 million token context window
