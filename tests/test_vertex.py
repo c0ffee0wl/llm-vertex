@@ -32,7 +32,9 @@ async def test_prompt():
     model = llm.get_model("gemini-1.5-flash-latest")
     response = model.prompt("Name for a pet pelican, just the name")
     assert str(response) == "Percy\n"
-    assert response.response_json == {
+    response_json = response.response_json.copy()
+    original_model_parts = response_json.pop("original_model_parts", None)
+    assert response_json == {
         "candidates": [
             {
                 "finishReason": "STOP",
@@ -58,6 +60,7 @@ async def test_prompt():
         ],
         "modelVersion": "gemini-1.5-flash-latest",
     }
+    assert original_model_parts == [{"text": "Percy\n"}]
     assert response.token_details == {
         "candidatesTokenCount": 2,
         "promptTokensDetails": [{"modality": "TEXT", "tokenCount": 9}],
@@ -98,7 +101,9 @@ async def test_prompt_with_pydantic_schema():
         "bio": "A fluffy Samoyed with exceptional intelligence and a love for belly rubs. He's mastered several tricks, including fetching the newspaper and opening doors.",
         "name": "Cloud",
     }
-    assert response.response_json == {
+    response_json = response.response_json.copy()
+    response_json.pop("original_model_parts", None)
+    assert response_json == {
         "candidates": [
             {
                 "finishReason": "STOP",

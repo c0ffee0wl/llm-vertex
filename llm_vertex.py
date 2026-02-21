@@ -910,26 +910,13 @@ class _SharedGemini:
         if prompt.system:
             body["systemInstruction"] = {"parts": [{"text": prompt.system}]}
 
-        # Check if any YouTube URLs are present in attachments
-        has_youtube = any(
-            attachment.url and is_youtube_url(attachment.url)
-            for attachment in prompt.attachments
-        ) or (
-            conversation
-            and any(
-                attachment.url and is_youtube_url(attachment.url)
-                for response in conversation.responses
-                for attachment in response.attachments
-            )
-        )
-
         tools = []
         if prompt.options and prompt.options.code_execution:
             tools.append({"codeExecution": {}})
         if prompt.options and self.can_google_search and prompt.options.google_search:
             tool_name = (
                 "google_search_retrieval"
-                if self.model_id in GOOGLE_SEARCH_MODELS_USING_SEARCH_RETRIEVAL
+                if self.gemini_model_id in GOOGLE_SEARCH_MODELS_USING_SEARCH_RETRIEVAL
                 else "google_search"
             )
             tools.append({tool_name: {}})
