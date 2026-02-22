@@ -1500,7 +1500,13 @@ def register_commands(cli):
         click.echo(f"  GOOGLE_CLOUD_API_KEY: {'Set' if os.environ.get('GOOGLE_CLOUD_API_KEY') else 'Not set'}")
         click.echo(f"  GOOGLE_APPLICATION_CREDENTIALS: {creds_path}")
         click.echo("\nAuthentication Method:")
-        if api_key:
+        # Check what would actually be used at runtime (OAuth2 is preferred over API key)
+        credentials, _ = get_vertex_credentials()
+        if credentials is not None:
+            click.echo("  Using OAuth2/ADC (recommended for production)")
+            if api_key:
+                click.echo("  (API key also configured but OAuth2 takes priority)")
+        elif api_key:
             click.echo("  Using API key (recommended for testing only)")
         else:
-            click.echo("  Using OAuth2/ADC (recommended for production)")
+            click.echo("  No authentication configured")
