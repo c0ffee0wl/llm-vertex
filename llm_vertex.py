@@ -380,6 +380,27 @@ def get_project_and_region():
     return project_id, region
 
 
+def get_default_thinking_level():
+    """
+    Get the default thinking level from environment variable or config.
+    Precedence: env var VERTEX_THINKING_LEVEL > config vertex-thinking-level > None
+
+    Returns the thinking level string (e.g. "low") or None if not configured.
+    """
+    level = os.environ.get("VERTEX_THINKING_LEVEL")
+    if level:
+        return level.lower()
+
+    try:
+        level = llm.get_key("", "vertex-thinking-level", "VERTEX_THINKING_LEVEL")
+        if level:
+            return level.lower()
+    except Exception:
+        pass
+
+    return None
+
+
 def build_vertex_endpoint(region, project_id, model_id, method="streamGenerateContent"):
     """
     Build the Vertex AI endpoint URL.
@@ -791,23 +812,24 @@ class _SharedGemini:
 
     def get_auth_header(self):
         """
-        Get the authentication header (API key or OAuth2 token).
-        API keys are recommended for testing only, not production.
+        Get the authentication header (OAuth2 token or API key).
+        OAuth2/ADC credentials are preferred over API keys for lower latency.
         """
-        # Check for API key first (simpler authentication)
+        # Prefer OAuth2 credentials (lower latency than API key / Express Mode)
+        credentials, _, _ = self.get_credentials_and_config()
+        if credentials is not None:
+            token = get_access_token(credentials)
+            return {"Authorization": f"Bearer {token}"}
+
+        # Fall back to API key
         api_key = get_api_key()
         if api_key:
             return {"x-goog-api-key": api_key}
 
-        # Fall back to OAuth2 authentication
-        credentials, _, _ = self.get_credentials_and_config()
-        if credentials is None:
-            raise llm.ModelError(
-                "No authentication available. Either set an API key with 'llm keys set vertex' "
-                "or configure Application Default Credentials with 'gcloud auth application-default login'"
-            )
-        token = get_access_token(credentials)
-        return {"Authorization": f"Bearer {token}"}
+        raise llm.ModelError(
+            "No authentication available. Either set an API key with 'llm keys set vertex' "
+            "or configure Application Default Credentials with 'gcloud auth application-default login'"
+        )
 
     def _build_attachment_part(self, attachment, mime_type):
         """Build the appropriate part structure for an attachment."""
@@ -954,6 +976,10 @@ class _SharedGemini:
             }
 
         thinking_level = getattr(prompt.options, "thinking_level", None)
+        if thinking_level is None and self.thinking_levels:
+            default_level = get_default_thinking_level()
+            if default_level and default_level in self.thinking_levels:
+                thinking_level = default_level
         if self.thinking_levels and thinking_level is not None:
             # Extract the enum value (e.g., "low", "high", "minimal", "medium")
             level_value = thinking_level.value if hasattr(thinking_level, "value") else thinking_level
@@ -1427,6 +1453,30 @@ def register_commands(cli):
         click.echo(f"Credentials path set to: {credentials_path}")
         click.echo("Note: You can also set GOOGLE_APPLICATION_CREDENTIALS environment variable")
 
+    @vertex.command(name="set-thinking-level")
+    @click.argument("level")
+    def set_thinking_level(level):
+        """
+        Set the default thinking level for Gemini 3+ models
+
+        Valid levels: minimal, low, medium, high
+
+        Example: llm vertex set-thinking-level low
+
+        This sets the default thinkingLevel sent to models that support it.
+        Without this, the server default (high) is used.
+        Per-request --thinking-level still overrides this default.
+        """
+        valid_levels = {"minimal", "low", "medium", "high"}
+        level = level.lower()
+        if level not in valid_levels:
+            raise click.ClickException(
+                f"Invalid thinking level: {level}\n"
+                f"Valid levels: {', '.join(sorted(valid_levels))}"
+            )
+        _save_vertex_config("vertex-thinking-level", level)
+        click.echo(f"Default thinking level set to: {level}")
+
     @vertex.command(name="config")
     def show_config():
         """
@@ -1436,9 +1486,12 @@ def register_commands(cli):
         creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "Not set")
         api_key = get_api_key()
 
+        thinking_level = get_default_thinking_level()
+
         click.echo("Current Vertex AI Configuration:")
         click.echo(f"  Project ID: {project_id or 'Not set (will use ADC default)'}")
         click.echo(f"  Region: {region}")
+        click.echo(f"  Default Thinking Level: {thinking_level or 'Not set (server default: high)'}")
         click.echo(f"  API Key: {'Set' if api_key else 'Not set'}")
         click.echo(f"  Credentials Path: {creds_path}")
         click.echo("\nEnvironment Variables:")
