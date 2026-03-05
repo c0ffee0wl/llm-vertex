@@ -4,8 +4,11 @@ import httpx
 import ijson
 import json
 import llm
+import logging
 import os
 import re
+
+logger = logging.getLogger(__name__)
 from enum import Enum
 from google.auth import default
 from google.auth.transport.requests import Request
@@ -363,8 +366,8 @@ def get_project_and_region():
         # Try to get from llm config
         try:
             project_id = llm.get_key("", "vertex-project", "GOOGLE_CLOUD_PROJECT")
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to read vertex-project from keys.json: {e}")
 
     # Get region (default to 'global')
     region = os.environ.get("GOOGLE_CLOUD_REGION", "global")
@@ -374,8 +377,8 @@ def get_project_and_region():
             config_region = llm.get_key("", "vertex-region", "GOOGLE_CLOUD_REGION")
             if config_region:
                 region = config_region
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to read vertex-region from keys.json: {e}")
 
     return project_id, region
 
@@ -1357,6 +1360,7 @@ def register_commands(cli):
         """
         _save_vertex_config("vertex-project", project_id)
         click.echo(f"GCP project ID set to: {project_id}")
+        click.echo("Note: If llm-server is running, restart it to pick up the new config.")
 
     @vertex.command(name="set-region")
     @click.argument("region")
@@ -1390,6 +1394,7 @@ def register_commands(cli):
 
         _save_vertex_config("vertex-region", region)
         click.echo(f"GCP region set to: {region}")
+        click.echo("Note: If llm-server is running, restart it to pick up the new config.")
 
     @vertex.command(name="list-regions")
     def list_regions():
@@ -1452,6 +1457,7 @@ def register_commands(cli):
         _save_vertex_config("vertex-credentials-path", credentials_path)
         click.echo(f"Credentials path set to: {credentials_path}")
         click.echo("Note: You can also set GOOGLE_APPLICATION_CREDENTIALS environment variable")
+        click.echo("Note: If llm-server is running, restart it to pick up the new config.")
 
     @vertex.command(name="set-thinking-level")
     @click.argument("level")
@@ -1483,8 +1489,18 @@ def register_commands(cli):
         Show current Vertex AI configuration
         """
         project_id, region = get_project_and_region()
-        creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "Not set")
+        creds_env_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
         api_key = get_api_key()
+
+        # Check stored credentials path from keys.json
+        stored_creds_path = None
+        try:
+            stored_creds_path = llm.get_key("", "vertex-credentials-path", "")
+        except Exception:
+            pass
+
+        # Effective credentials path: env var takes priority, then stored config
+        effective_creds_path = creds_env_path or stored_creds_path or "Not set"
 
         thinking_level = get_default_thinking_level()
 
@@ -1493,12 +1509,16 @@ def register_commands(cli):
         click.echo(f"  Region: {region}")
         click.echo(f"  Default Thinking Level: {thinking_level or 'Not set (server default: high)'}")
         click.echo(f"  API Key: {'Set' if api_key else 'Not set'}")
-        click.echo(f"  Credentials Path: {creds_path}")
+        click.echo(f"  Credentials Path: {effective_creds_path}")
+        if stored_creds_path and creds_env_path:
+            click.echo(f"    (env var overrides stored path: {stored_creds_path})")
+        elif stored_creds_path:
+            click.echo(f"    (from: llm vertex set-credentials)")
         click.echo("\nEnvironment Variables:")
         click.echo(f"  GOOGLE_CLOUD_PROJECT: {os.environ.get('GOOGLE_CLOUD_PROJECT', 'Not set')}")
         click.echo(f"  GOOGLE_CLOUD_REGION: {os.environ.get('GOOGLE_CLOUD_REGION', 'Not set')}")
         click.echo(f"  GOOGLE_CLOUD_API_KEY: {'Set' if os.environ.get('GOOGLE_CLOUD_API_KEY') else 'Not set'}")
-        click.echo(f"  GOOGLE_APPLICATION_CREDENTIALS: {creds_path}")
+        click.echo(f"  GOOGLE_APPLICATION_CREDENTIALS: {creds_env_path or 'Not set'}")
         click.echo("\nAuthentication Method:")
         # Check what would actually be used at runtime (OAuth2 is preferred over API key)
         credentials, _ = get_vertex_credentials()
