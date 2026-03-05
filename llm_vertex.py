@@ -66,6 +66,7 @@ GOOGLE_SEARCH_MODELS = {
     # Gemini 3.1 models (global region only)
     "gemini-3.1-pro-preview",
     "gemini-3.1-pro-preview-customtools",
+    "gemini-3.1-flash-lite-preview",
 }
 
 # Older Google models used google_search_retrieval instead of google_search
@@ -104,6 +105,7 @@ MODEL_THINKING_LEVELS = {
     "gemini-3-flash-preview": ["minimal", "low", "medium", "high"],
     "gemini-3.1-pro-preview": ["low", "medium", "high"],
     "gemini-3.1-pro-preview-customtools": ["low", "medium", "high"],
+    "gemini-3.1-flash-lite-preview": ["minimal", "low", "medium", "high"],
 }
 
 NO_VISION_MODELS = {"gemma-3-1b-it", "gemma-3n-e4b-it"}
@@ -165,6 +167,7 @@ MODEL_REGION_REQUIREMENTS = {
     "gemini-3-flash-preview": "global",
     "gemini-3.1-pro-preview": "global",
     "gemini-3.1-pro-preview-customtools": "global",
+    "gemini-3.1-flash-lite-preview": "global",
 }
 
 ATTACHMENT_TYPES = {
@@ -487,6 +490,8 @@ def register_models(register):
         # 19th February 2026:
         "gemini-3.1-pro-preview",
         "gemini-3.1-pro-preview-customtools",
+        # 3rd March 2026:
+        "gemini-3.1-flash-lite-preview",
     ):
         can_google_search = model_id in GOOGLE_SEARCH_MODELS
         can_thinking_budget = model_id in THINKING_BUDGET_MODELS
