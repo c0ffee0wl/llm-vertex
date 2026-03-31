@@ -1,7 +1,6 @@
 # llm-vertex
 
 [![Changelog](https://img.shields.io/github/v/release/c0ffee0wl/llm-vertex?include_prereleases&label=changelog)](https://github.com/c0ffee0wl/llm-vertex/releases)
-[![Tests](https://github.com/c0ffee0wl/llm-vertex/workflows/Test/badge.svg)](https://github.com/c0ffee0wl/llm-vertex/actions?query=workflow%3ATest)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/c0ffee0wl/llm-vertex/blob/main/LICENSE)
 
 Access Google's Gemini models via Vertex AI for enterprise use
