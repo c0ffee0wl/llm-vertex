@@ -1,6 +1,5 @@
 # llm-vertex
 
-[![PyPI](https://img.shields.io/pypi/v/llm-vertex.svg)](https://pypi.org/project/llm-vertex/)
 [![Changelog](https://img.shields.io/github/v/release/c0ffee0wl/llm-vertex?include_prereleases&label=changelog)](https://github.com/c0ffee0wl/llm-vertex/releases)
 [![Tests](https://github.com/c0ffee0wl/llm-vertex/workflows/Test/badge.svg)](https://github.com/c0ffee0wl/llm-vertex/actions?query=workflow%3ATest)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/c0ffee0wl/llm-vertex/blob/main/LICENSE)
@@ -10,8 +9,11 @@ Access Google's Gemini models via Vertex AI for enterprise use
 ## Installation
 
 Install this plugin in the same environment as [LLM](https://llm.datasette.io/).
+
+> **Note:** This package is not published on PyPI (the `llm-vertex` name on PyPI is an unrelated project). Install directly from GitHub:
+
 ```bash
-llm install llm-vertex
+llm install "llm-vertex @ git+https://github.com/c0ffee0wl/llm-vertex.git"
 ```
 
 ## Authentication Setup
@@ -151,14 +153,27 @@ llm -m vertex/gemini-3-flash-preview -o thinking_level high 'complex reasoning t
 
 - `vertex/gemini-3.1-pro-preview`: Gemini 3.1 Pro preview (global region only)
 - `vertex/gemini-3.1-pro-preview-customtools`: Gemini 3.1 Pro with custom tools support (global region only)
+- `vertex/gemini-3.1-flash-lite-preview`: Gemini 3.1 Flash Lite preview (global region only)
 
-**Thinking Levels:** Gemini 3.1 Pro models support configurable thinking levels: `low`, `medium`, `high`
+**Thinking Levels:** Gemini 3.1 models support configurable thinking levels:
+- Pro (`gemini-3.1-pro-preview`): `low`, `medium`, `high`
+- Flash Lite (`gemini-3.1-flash-lite-preview`): `minimal`, `low`, `medium`, `high`
 
 ```bash
 llm -m vertex/gemini-3.1-pro-preview -o thinking_level high 'complex reasoning task'
 ```
 
 **Note:** Gemini 3.1 models automatically use the global endpoint regardless of your configured region.
+
+### Gemma 3 (Open Models)
+
+- `vertex/gemma-3-1b-it`: Gemma 3 1B (text only, no vision)
+- `vertex/gemma-3-4b-it`: Gemma 3 4B
+- `vertex/gemma-3-12b-it`: Gemma 3 12B
+- `vertex/gemma-3-27b-it`: Gemma 3 27B
+- `vertex/gemma-3n-e4b-it`: Gemma 3n E4B (text only, no vision)
+
+**Note:** Gemma models do not support structured output schemas or media resolution settings. `gemma-3-1b-it` and `gemma-3n-e4b-it` do not support vision/image inputs.
 
 ### Gemini 2.5 and earlier
 
@@ -267,6 +282,7 @@ The Gemini 3 models (Pro launched November 18, 2025; Flash launched December 17,
 | gemini-3-flash-preview | Global only | minimal, low, medium, high | Yes |
 | gemini-3.1-pro-preview | Global only | low, medium, high | Yes |
 | gemini-3.1-pro-preview-customtools | Global only | low, medium, high | Yes |
+| gemini-3.1-flash-lite-preview | Global only | minimal, low, medium, high | Yes |
 
 **Key Features:**
 - 1 million token context window
@@ -424,7 +440,7 @@ Vertex AI charges for model usage. See [Vertex AI pricing](https://cloud.google.
 
 To set up this plugin locally, first checkout the code. Then create a new virtual environment:
 ```bash
-cd llm-gemini-vertex
+cd llm-vertex
 python3 -m venv venv
 source venv/bin/activate
 ```
