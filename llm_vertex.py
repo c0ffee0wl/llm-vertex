@@ -59,9 +59,6 @@ GOOGLE_SEARCH_MODELS = {
     "gemini-2.5-flash-preview-09-2025",
     "gemini-2.5-flash-lite-preview-09-2025",
     # Gemini 3 models (global region only)
-    "gemini-3-pro-preview",
-    "gemini-3-pro-preview-11-2025",
-    "gemini-3-pro-preview-11-2025-thinking",
     "gemini-3-flash-preview",
     # Gemini 3.1 models (global region only)
     "gemini-3.1-pro-preview",
@@ -99,9 +96,6 @@ THINKING_BUDGET_MODELS = {
 }
 
 MODEL_THINKING_LEVELS = {
-    "gemini-3-pro-preview": ["low", "high"],
-    "gemini-3-pro-preview-11-2025": ["low", "high"],
-    "gemini-3-pro-preview-11-2025-thinking": ["low", "high"],
     "gemini-3-flash-preview": ["minimal", "low", "medium", "high"],
     "gemini-3.1-pro-preview": ["low", "medium", "high"],
     "gemini-3.1-pro-preview-customtools": ["low", "medium", "high"],
@@ -161,9 +155,6 @@ VALID_REGIONS = {
 
 # Models that require specific regions (will override user's configured region)
 MODEL_REGION_REQUIREMENTS = {
-    "gemini-3-pro-preview": "global",
-    "gemini-3-pro-preview-11-2025": "global",
-    "gemini-3-pro-preview-11-2025-thinking": "global",
     "gemini-3-flash-preview": "global",
     "gemini-3.1-pro-preview": "global",
     "gemini-3.1-pro-preview-customtools": "global",
@@ -481,10 +472,6 @@ def register_models(register):
         "gemini-flash-lite-latest",
         "gemini-2.5-flash-preview-09-2025",
         "gemini-2.5-flash-lite-preview-09-2025",
-        # 18th November 2025 - Gemini 3 models:
-        "gemini-3-pro-preview",
-        "gemini-3-pro-preview-11-2025",
-        "gemini-3-pro-preview-11-2025-thinking",
         # 17th December 2025:
         "gemini-3-flash-preview",
         # 19th February 2026:
@@ -492,6 +479,9 @@ def register_models(register):
         "gemini-3.1-pro-preview-customtools",
         # 3rd March 2026:
         "gemini-3.1-flash-lite-preview",
+        # Gemma 4 models:
+        "gemma-4-26b-a4b-it",
+        "gemma-4-31b-it",
     ):
         can_google_search = model_id in GOOGLE_SEARCH_MODELS
         can_thinking_budget = model_id in THINKING_BUDGET_MODELS
