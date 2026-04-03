@@ -45,3 +45,19 @@ The entire plugin is a single file: `llm_vertex.py`. There is no package directo
 **Region overrides:** Models in `MODEL_REGION_REQUIREMENTS` (Gemini 3+) automatically use the global endpoint regardless of user config.
 
 **CLI commands:** Registered via `register_commands()` hook — `llm vertex set-project`, `set-region`, `set-credentials`, `set-thinking-level`, `list-regions`, `config`.
+
+## Adding New Models
+
+Adding a model requires updating multiple data structures in `llm_vertex.py`. For each new model ID:
+
+1. Add to the model list in `register_models()` (registers both sync and async)
+2. Add to `GOOGLE_SEARCH_MODELS` if it supports Google Search grounding (most Gemini models do; Gemma models don't)
+3. Add to `THINKING_BUDGET_MODELS` if it supports `thinking_budget` (integer token budget — Gemini 2.5 series)
+4. Add to `MODEL_THINKING_LEVELS` if it supports `thinking_level` (named levels like "low"/"high" — Gemini 3+ series)
+5. Add to `MODEL_REGION_REQUIREMENTS` if it requires a specific endpoint (e.g., `"global"` for Gemini 3+ models)
+6. Add to `NO_VISION_MODELS` if it lacks vision/attachment support
+7. Add to `NO_MEDIA_RESOLUTION_MODELS` if it doesn't support the `mediaResolution` parameter (Gemma 3 models)
+
+The `can_schema` flag is computed inline: disabled for models with `"flash-thinking"` or `"gemma-3"` in the ID.
+
+This plugin mirrors [llm-gemini](https://github.com/simonw/llm-gemini) (Google AI API). When adding models, check llm-gemini for capability flags as a reference. The Vertex AI model list and capabilities can be verified at https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models.
